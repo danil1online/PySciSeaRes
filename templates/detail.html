@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ advert.fio }}{% endblock %}
+{% block content %}
+<div class="detail-page">
+    {% set back_url = url_for('search_page') + '?' + back_qs if back_qs else url_for('search_page') %}
+    <a href="{{ back_url }}" class="back-link">← Назад к поиску</a>
+
+    <div class="detail-header">
+        <h1>{{ advert.fio or 'Неизвестно' }}</h1>
+        <span class="pub-badge-large">{{ (advert.publications or [])|length }} публикаций</span>
+    </div>
+
+    <div class="detail-section">
+        <table class="detail-table">
+            <tr>
+                <td class="detail-label">Дата защиты:</td>
+                <td>{{ advert.date_defend or '—' }}</td>
+            </tr>
+            <tr>
+                <td class="detail-label">Диссертация:</td>
+                <td>{{ advert.dissertation_name or '—' }}</td>
+            </tr>
+            <tr>
+                <td class="detail-label">Специальность:</td>
+                <td>{{ advert.specialty_cipher }} — {{ advert.specialty_text or '—' }}</td>
+            </tr>
+            {% if advert.supervisor_name %}
+            <tr>
+                <td class="detail-label">Научный руководитель:</td>
+                <td>{{ advert.supervisor_name }}</td>
+            </tr>
+            {% endif %}
+            {% if advert.supervisor_work %}
+            <tr>
+                <td class="detail-label">Место работы руководителя:</td>
+                <td>{{ advert.supervisor_work }}</td>
+            </tr>
+            {% endif %}
+            {% if advert.council_cipher %}
+            <tr>
+                <td class="detail-label">Диссертационный совет:</td>
+                <td>{{ advert.council_cipher }} {{ advert.defend_org or '' }}</td>
+            </tr>
+            {% endif %}
+            {% if advert.autoref_url %}
+            <tr>
+                <td class="detail-label">Автореферат:</td>
+                <td><a href="{{ advert.autoref_url }}" target="_blank" class="link">Ссылка на автореферат ↗</a></td>
+            </tr>
+            {% endif %}
+        </table>
+    </div>
+
+    {% if advert.publications %}
+    <div class="detail-section">
+        <h2>Публикации</h2>
+        <div class="publications-list">
+            {% for pub in advert.publications %}
+            <div class="pub-item">
+                <span class="pub-number">{{ pub.pub_number }}.</span>
+                <span class="pub-title">{{ pub.title or 'Без названия' }}</span>
+                {% if pub.journal %}
+                <span class="pub-journal">{{ pub.journal }}</span>
+                {% endif %}
+                {% if pub.year %}
+                <span class="pub-year">{{ pub.year }}</span>
+                {% endif %}
+                {% if pub.pages %}
+                <span class="pub-pages">{{ pub.pages }}</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="detail-section">
+        <h2>Публикации</h2>
+        <p class="empty-text">Публикации не найдены</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -9,7 +9,11 @@
       },
       "models": {
         "qwen-local": {
-          "id": "unsloth/qwen3.6-35b-a3b"
+          "id": "unsloth/qwen3.6-35b-a3b",
+          "limit": {
+            "context": 262144,
+            "output": 16384
+          }
         }
       }
     }

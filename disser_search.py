@@ -1,4 +1,6 @@
 import requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from datetime import datetime
 import sqlite3
 import pdfplumber
@@ -16,7 +18,7 @@ LLM_HEADERS = {"Content-Type": "application/json"}
 DB_PATH = "disser.db"
 AUTOREFS_DIR = "autorefs"
 MIN_SIZE = 500 * 1024  # 500 KB
-LLM_MODEL = "Qwen3.5-0.8B-Q4_K_M.gguf"
+LLM_MODEL = "Qwen3.5-2B-Q4_K_M.gguf"
 LLM_MAX_TOKENS = 2000
 PUB_EXTRACT_SYSTEM_PROMPT = (
     "Ты — помощник по извлечению библиографических данных из авторефератов диссертаций. "
@@ -141,9 +143,15 @@ def save_advert_to_db(conn, advert_data):
 def _send_to_llm(text):
     """Отправить текст в LLM для извлечения публикаций."""
     prompt = (
-        "Извлеки из текста нумерованный список публикаций автора. "
-        "Каждую публикацию напиши на новой строке, убери переносы строк внутри одной публикации. "
-        "Верни только список, без заголовков и комментариев.\n\nТекст:\n\n" + text
+        "Извлеки из текста ТОЛЬКО реальные научные публикации автора. "
+        "Публикация — это точное цитирование: ФИО автора, название работы, журнал/источник, год, том/номер, страницы. "
+        "ВАЖНО: НЕ генерируй и не придумывай публикации! "
+        "Если публикация не указана явно в тексте — НЕ включай её. "
+        "НЕ придумывай DOI, названия журналов, номера страниц — если их нет в тексте, не создавай их. "
+        "НЕ включай: выводы диссертации, описание структуры, задачи, методы, результаты, "
+        "информацию о руководителе/оппонентах, апробацию, списки условных обозначений. "
+        "Верни ТОЛЬКО нумерованный список цитирований, которые буквально присутствуют в тексте. "
+        "Если публикаций нет — напиши: НЕ НАЙДЕНЫ\n\nТекст:\n\n" + text
     )
 
     resp = requests.post(
@@ -181,17 +189,53 @@ def _extract_publications_regex(pub_text):
 
 def _is_likely_publication(text):
     """Оценить, похож ли текст на библиографическую публикацию."""
-    # Не публикации — это выводы/результаты, начинающиеся с глаголов
+    low = text.lower().strip()
+
+    # Чёткие признаки НЕ-публикации
+    not_pub_patterns = [
+        "основные положения", "диссертация состоит", "во введении обоснован",
+        "в первой главе", "все вышеуказанн", "в результате обзора",
+        "научный проект", "внедрен в учебн", "докладывались на",
+        "обзор гидрометеорологич", "процессов поддерживаются",
+        "списив условных обозначен", "введение, 4 глав",
+        "актуальност диссертационн", "положения вынесены на",
+        "научный руководитель", "научный советник", "оппоненты",
+        "защита состоял", "диссертация доступн",
+        "введение в диссертационн",
+    ]
+    if any(p in low for p in not_pub_patterns):
+        return False
+
+    # Предлоги/союзы в начале — не публикации
+    prep_starts = ["на основе", "на основании", "в ходе", "в рамках", "по результатам",
+                   "по данным", "в связи", "в соответствии", "в течение",
+                   "результаты диссертации", "результаты исследования",
+                   "результаты работы", "результаты анализа",
+                   "положения вынесены", "тезисы доложены",
+                   "на привлечении", "на расчетах", "на выявлении",
+                   "на построении", "на разработке", "на оценке",
+    ]
+    if any(low.startswith(p) for p in prep_starts):
+        return False
+
+    # Не публикации — это выводы/результаты, начинающиеся с глаголов/существительных
     conclusion_starts = [
         "анализ", "разработ", "провед", "синтезир", "исслед", "получен",
         "представл", "доказан", "определен", "установлен", "выполнен",
-        "решен", "сформулирован", "обоснован",
+        "решен", "сформулирован", "обоснован", "выявлен", "определен",
+        "создан", "разработана", "разработано", "разработаны",
+        "представлен", "полученн", "доложен", "внедрен",
+        "обобщен", "систематизир", "классифицир", "проанализир",
+        "сравнен", "проверен", "проверенн", "оценен",
+        "методы", "использование", "подход", "подходы",
+        "подход требует", "методы инспекции", "методы анализа",
     ]
-    first_word = text[:50].lower().split()[0] if text.split() else ""
+    words = text[:80].lower().split()
+    first_word = words[0] if words else ""
     if any(first_word.startswith(c) for c in conclusion_starts):
         # Строгие признаки публикации
-        strong_indicators = ["//", "журн", "конференц", "пат\. ", "пат\.",
-                            "свидетельств", "мбд", "web of science", "вак"]
+        strong_indicators = ["//", "журн", "конференц", "пат. ", "пат.",
+                            "свидетельств", "мбд", "web of science", "вак", "scopus"]
         # Слабые признаки (год, том, страница)
         weak_indicators = [
             r"\b20\d{2}\b",     # год 20xx
@@ -200,9 +244,10 @@ def _is_likely_publication(text):
             r"\bс\.\s*\d",      # с. 5
             r"№\s*\d",          # № 1
             r"стр\.?\s*\d",     # стр. 5 или стр 5
+            r"doi:\s*10\.",     # DOI
         ]
-        has_strong = any(ind.lower() in text.lower() for ind in strong_indicators)
-        has_weak = any(re.search(ind, text) for ind in weak_indicators)
+        has_strong = any(ind.lower() in low for ind in strong_indicators)
+        has_weak = any(re.search(ind, low) for ind in weak_indicators)
         if not has_strong and not has_weak:
             return False
     return True
@@ -302,13 +347,23 @@ def extract_publications_from_pdf(pdf_path):
                 text += "\n" + t
 
         # Try to find the specific publications section header
-        # Common headers in Russian dissertations
+        # Priority: publications list at end > main publications section
         pub_headers = [
+            "СПИСОК РАБОТ, ОПУБЛИКОВАННЫХ АВТОРОМ",
+            "СПИСОК ОПУБЛИКОВАННЫХ АВТОРОМ ДИССЕРТАЦИИ",
+            "СПИСОК ПУБЛИКАЦИЙ",
+            "СПИСОК ОПУБЛИКОВАННЫХ РАБОТ",
             "ОСНОВНЫЕ ПУБЛИКАЦИИ ПО ТЕМЕ ИССЛЕДОВАНИЯ",
             "ОСНОВНЫЕ ПУБЛИКАЦИИ",
             "ПУБЛИКАЦИИ ПО ТЕМЕ ДИССЕРТАЦИИ",
             "Публикации автора по теме диссертации",
             "Основные публикации по теме исследования",
+            "Апробация работы и публикации",
+            "Апробация и публикации",
+            "СПИСОК ОСНОВНЫХ ПУБЛИКАЦИЙ",
+            "Основные публикации",
+            "Публикации в изданиях",
+            "Публикации по теме диссертации",
         ]
 
         idx = -1
@@ -319,22 +374,34 @@ def extract_publications_from_pdf(pdf_path):
                 break
 
         # Fallback: search for "Публикац" if specific header not found
+        # Also check for "СПИСОК" which often appears at the end
         if idx < 0:
-            idx = text.find("Публикац")
+            list_idx = text.find("СПИСОК ОПУБЛИКОВАННЫХ")
+            pub_idx = text.find("Публикац")
+            # Prefer the last publications section (often the full list)
+            if list_idx >= 0:
+                idx = list_idx
+            elif pub_idx >= 0:
+                idx = pub_idx
         if idx < 0:
             return []
 
-        # Regex extraction on full available text
-        pub_text = text[idx:]
+        # Regex extraction on publications section (limited to avoid conclusions)
+        pub_text = text[idx:idx + 4000]
         regex_pubs = _extract_publications_regex(pub_text)
 
         # LLM extraction on a manageable chunk
         llm_pubs = []
         try:
             print("  Запрос к LLM для извлечения публикаций...")
-            llm_section = pub_text[:3500]
+            llm_section = text[idx:idx + 3500]
             response = _send_to_llm(llm_section)
             llm_pubs = _parse_llm_publications(response)
+            # Sanity check: real dissertations typically have 5-20 publications
+            # LLM hallucinations often produce 20+ fake entries
+            if len(llm_pubs) > 30:
+                print(f"  Подозрение на галлюцинацию LLM ({len(llm_pubs)} публикаций), уменьшаем до 20")
+                llm_pubs = llm_pubs[:20]
         except Exception as e:
             print(f"  Ошибка LLM: {e}")
 
@@ -387,7 +454,7 @@ def download_autoref(autoref_url, fio, max_retries=3):
 
     for attempt in range(max_retries):
         try:
-            resp = requests.get(autoref_url, stream=True, timeout=120, headers=DOWNLOAD_HEADERS)
+            resp = requests.get(autoref_url, stream=True, timeout=120, headers=DOWNLOAD_HEADERS, verify=False)
             resp.raise_for_status()
 
             # Проверить Content-Length до скачивания

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ВАК Диссертации{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container nav-content">
+            <a href="{{ url_for('search_page') }}" class="nav-brand">ВАК Диссертации</a>
+            <div class="nav-links">
+                <a href="{{ url_for('search_page') }}">Поиск</a>
+                {% if session.get('user', {}).get('is_admin') %}
+                <a href="{{ url_for('admin_page') }}">Админ</a>
+                {% endif %}
+                <span class="nav-user">{{ session.get('user', {}).get('username', 'Гость') }}</span>
+                <a href="{{ url_for('logout') }}">Выход</a>
+            </div>
+        </div>
+    </nav>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="container">
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            ВАК Диссертации &copy; {{ now_year if now_year else '2025' }}
+        </div>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

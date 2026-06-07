@@ -1,0 +1,508 @@
+{% extends "base.html" %}
+{% block title %}Поиск диссертаций{% endblock %}
+{% block content %}
+<div class="search-page">
+    <h1>Поиск диссертаций</h1>
+
+    <div class="search-panel">
+        <form id="search-form">
+            <div class="form-row">
+                <div class="form-group flex-grow">
+                    <label for="query">Поиск по ФИО, названию, специальности</label>
+                    <input type="text" id="query" name="query" placeholder="Например: Иванов, оптика, искусственный...">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="date_from">Дата защиты от</label>
+                    <input type="date" id="date_from" name="date_from">
+                </div>
+                <div class="form-group">
+                    <label for="date_to">Дата защиты до</label>
+                    <input type="date" id="date_to" name="date_to">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Выберите группы специальностей (или разверните группу и выберите отдельные специальности): <span id="group-count">0</span> групп | <span id="spec-count">0</span> спец.</label>
+                <div class="specialties-group-list" id="specialties-group-list">
+                    {% for group in specialties %}
+                    <div class="spec-group" data-group-key="{{ group.key }}">
+                        <label class="spec-group-header">
+                            <input type="checkbox" name="groups" value="{{ group.key }}">
+                            <span class="group-name">{{ group.key }} — {{ group.name }}</span>
+                            <span class="group-count-badge">({{ group.specialties|length }})</span>
+                            <span class="group-toggle">▶</span>
+                        </label>
+                        <div class="spec-group-body">
+                            {% for spec in group.specialties %}
+                            <label class="spec-checkbox">
+                                <input type="checkbox" name="specialties" value="{{ spec.cipher }}" data-group="{{ group.key }}">
+                                <span>{{ spec.cipher }} — {{ spec.name }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="search-btn">Найти</button>
+                <button type="button" class="btn btn-primary" id="show-all-btn">Показать всё из БД</button>
+                <button type="button" class="btn btn-secondary" onclick="expandAll()">Свернуть/развернуть группы</button>
+                <button type="button" class="btn btn-danger btn-sm" id="reset-btn" onclick="resetSearch()">Сбросить результаты поиска</button>
+            </div>
+        </form>
+
+        <div class="spec-selection">
+            <div class="selected-specs" id="selected-specs">
+                <span class="placeholder">Выберите специальности...</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="results-info" id="results-info" style="display:none;">
+        <span id="results-count"></span>
+        <div id="pagination" class="pagination"></div>
+    </div>
+
+    <div id="results" class="results-list">
+        <div class="empty-state">
+            <p>Нажмите "Найти" с выбранной специальностью или "Показать всё из БД"</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const groupCheckboxes = document.querySelectorAll('input[name="groups"]');
+const specCheckboxes = document.querySelectorAll('input[name="specialties"]');
+const specCountEl = document.getElementById('spec-count');
+const groupCountEl = document.getElementById('group-count');
+const selectedSpecsEl = document.getElementById('selected-specs');
+const resetBtn = document.getElementById('reset-btn');
+const showAllBtn = document.getElementById('show-all-btn');
+const searchBtn = document.getElementById('search-btn');
+const MAX_SPECS = 5;
+let lastSearchParams = {};
+
+function getGroupAllCiphers(groupKey) {
+    const group = document.querySelector(`.spec-group[data-group-key="${groupKey}"]`);
+    if (!group) return [];
+    return Array.from(group.querySelectorAll('input[name="specialties"]')).map(cb => cb.value);
+}
+
+function getGroupAllCount(groupKey) {
+    return getGroupAllCiphers(groupKey).length;
+}
+
+function isGroupFullySelected(groupKey) {
+    const all = getGroupAllCiphers(groupKey);
+    return all.length > 0 && all.every(c => {
+        const cb = document.querySelector(`input[name="specialties"][value="${c}"]`);
+        return cb && cb.checked;
+    });
+}
+
+function isGroupPartiallySelected(groupKey) {
+    const all = getGroupAllCiphers(groupKey);
+    const checked = all.filter(c => {
+        const cb = document.querySelector(`input[name="specialties"][value="${c}"]`);
+        return cb && cb.checked;
+    });
+    return checked.length > 0 && checked.length < all.length;
+}
+
+function toggleGroup(groupKey, forceState) {
+    const all = getGroupAllCiphers(groupKey);
+    const checked = all.filter(c => {
+        const cb = document.querySelector(`input[name="specialties"][value="${c}"]`);
+        return cb && cb.checked;
+    });
+    const shouldCheck = forceState !== undefined ? forceState : (checked.length === 0);
+    all.forEach(c => {
+        const cb = document.querySelector(`input[name="specialties"][value="${c}"]`);
+        if (cb) cb.checked = shouldCheck;
+    });
+    const groupCb = document.querySelector(`input[name="groups"][value="${groupKey}"]`);
+    if (groupCb) groupCb.checked = shouldCheck;
+    updateSpecCount();
+}
+
+function updateSpecCount() {
+    const checked = document.querySelectorAll('input[name="specialties"]:checked');
+    const selectedCount = checked.length;
+    specCountEl.textContent = `${selectedCount}/${MAX_SPECS}`;
+
+    let groupCount = 0;
+    groupCheckboxes.forEach(gcb => {
+        if (gcb.checked) groupCount++;
+    });
+    groupCountEl.textContent = groupCount;
+
+    selectedSpecsEl.innerHTML = '';
+    if (selectedCount === 0 && groupCount === 0) {
+        selectedSpecsEl.innerHTML = '<span class="placeholder">Выберите специальности...</span>';
+    } else {
+        if (groupCount > 0) {
+            groupCheckboxes.forEach(gcb => {
+                if (gcb.checked) {
+                    const span = document.createElement('span');
+                    span.className = 'spec-tag';
+                    span.textContent = gcb.value + ' (группа)';
+                    span.style.background = '#e3f2fd';
+                    span.onclick = () => toggleGroup(gcb.value, false);
+                    selectedSpecsEl.appendChild(span);
+                }
+            });
+        }
+        if (selectedCount > 0 && groupCount > 0) {
+            const sep = document.createElement('span');
+            sep.style.cssText = 'color:#999;margin:0 5px;';
+            sep.textContent = '+';
+            selectedSpecsEl.appendChild(sep);
+        }
+        Array.from(checked).forEach(cb => {
+            if (!cb.closest('.spec-group-body') || !isGroupFullySelected(cb.dataset.group)) {
+                const span = document.createElement('span');
+                span.className = 'spec-tag';
+                span.textContent = cb.value;
+                span.onclick = () => {
+                    cb.checked = false;
+                    const g = cb.closest('.spec-group-body')?.querySelector(`input[name="groups"]`);
+                    if (g) g.checked = false;
+                    updateSpecCount();
+                };
+                selectedSpecsEl.appendChild(span);
+            }
+        });
+    }
+
+    groupCheckboxes.forEach(gcb => {
+        if (isGroupFullySelected(gcb.value)) {
+            gcb.indeterminate = false;
+            gcb.checked = true;
+        } else if (isGroupPartiallySelected(gcb.value)) {
+            gcb.indeterminate = true;
+        } else {
+            gcb.indeterminate = false;
+            gcb.checked = false;
+        }
+    });
+
+    const checkedCount = selectedCount;
+    specCheckboxes.forEach(cb => {
+        if (!cb.checked && checkedCount >= MAX_SPECS) {
+            cb.disabled = true;
+        } else {
+            cb.disabled = false;
+        }
+    });
+}
+
+groupCheckboxes.forEach(cb => {
+    cb.addEventListener('change', () => {
+        toggleGroup(cb.value);
+    });
+});
+
+specCheckboxes.forEach(cb => {
+    cb.addEventListener('change', () => {
+        updateSpecCount();
+    });
+});
+
+function getFormData() {
+    const checked = document.querySelectorAll('input[name="specialties"]:checked');
+    const specialties = Array.from(checked).map(cb => cb.value);
+    const date_from = document.getElementById('date_from').value;
+    const date_to = document.getElementById('date_to').value;
+    const query = document.getElementById('query').value.trim();
+    return { specialties, date_from, date_to, query };
+}
+
+function buildApiUrl(data, page = 1) {
+    const url = new URL('/api/search', window.location.origin);
+    url.searchParams.set('page', page);
+    data.specialties.forEach(s => url.searchParams.append('specialties', s));
+    if (data.date_from) url.searchParams.set('date_from', data.date_from);
+    if (data.date_to) url.searchParams.set('date_to', data.date_to);
+    if (data.query) url.searchParams.set('query', data.query);
+    return url.toString();
+}
+
+function buildPageUrl(page, data) {
+    const url = new URL(window.location);
+    url.searchParams.set('page', page);
+    url.searchParams.set('date_from', data.date_from || '');
+    url.searchParams.set('date_to', data.date_to || '');
+    url.searchParams.set('query', data.query || '');
+    if (data.specialties.length > 0) {
+        url.searchParams.set('specialties', data.specialties.join(','));
+    } else {
+        url.searchParams.delete('specialties');
+    }
+    return url.toString();
+}
+
+function parseUrlParams() {
+    const params = new URLSearchParams(window.location.search);
+    const specialtiesStr = params.get('specialties') || '';
+    const specialties = specialtiesStr.split(',').filter(s => s.trim()).slice(0, 5);
+    const date_from = params.get('date_from') || '';
+    const date_to = params.get('date_to') || '';
+    const query = params.get('query') || '';
+    const page = parseInt(params.get('page') || '1');
+    return { specialties, date_from, date_to, query, page };
+}
+
+function setFormFromParams(params) {
+    specCheckboxes.forEach(cb => {
+        cb.checked = params.specialties.includes(cb.value);
+    });
+    updateSpecCount();
+    document.getElementById('date_from').value = params.date_from;
+    document.getElementById('date_to').value = params.date_to;
+    document.getElementById('query').value = params.query;
+
+    if (params.specialties.length > 0 || params.date_from || params.date_to || params.query) {
+        resetBtn.style.display = 'inline-block';
+    } else {
+        resetBtn.style.display = 'none';
+    }
+}
+
+function clearForm() {
+    specCheckboxes.forEach(cb => { cb.checked = false; cb.disabled = false; });
+    groupCheckboxes.forEach(cb => { cb.checked = false; cb.indeterminate = false; });
+    updateSpecCount();
+    document.getElementById('date_from').value = '';
+    document.getElementById('date_to').value = '';
+    document.getElementById('query').value = '';
+    resetBtn.style.display = 'none';
+    showAllBtn.style.display = 'inline-block';
+
+    const url = new URL(window.location);
+    url.searchParams.delete('specialties');
+    url.searchParams.delete('date_from');
+    url.searchParams.delete('date_to');
+    url.searchParams.delete('query');
+    url.searchParams.delete('page');
+    window.history.replaceState(null, '', url.toString());
+}
+
+function saveSearchToSession(data) {
+    fetch('/api/save_search', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    }).catch(() => {});
+}
+
+function performSearch(page = 1, isShowAll = false) {
+    const data = getFormData();
+
+    if (!isShowAll && data.specialties.length === 0) {
+        alert('Выберите хотя бы одну специальность');
+        return;
+    }
+
+    lastSearchParams = { ...data, page: page, is_show_all: isShowAll };
+
+    const pageUrl = buildPageUrl(page, data);
+    window.history.pushState({ specialties: data.specialties, date_from: data.date_from, date_to: data.date_to, query: data.query }, '', pageUrl);
+
+    document.getElementById('results').innerHTML = '<div class="loading">Загрузка...</div>';
+    resetBtn.style.display = 'inline-block';
+
+    saveSearchToSession(data);
+
+    const apiUrl = buildApiUrl(data, page);
+    fetch(apiUrl)
+        .then(r => r.json())
+        .then(data => renderResults(data))
+        .catch(err => {
+            document.getElementById('results').innerHTML = '<div class="error">Ошибка: ' + err.message + '</div>';
+        });
+}
+
+function getSearchCacheKey(params) {
+    const parts = [];
+    if (params.specialties && params.specialties.length > 0) parts.push('s=' + params.specialties.join(','));
+    if (params.date_from) parts.push('df=' + params.date_from);
+    if (params.date_to) parts.push('dt=' + params.date_to);
+    if (params.query) parts.push('q=' + encodeURIComponent(params.query));
+    if (params.is_show_all) parts.push('all=1');
+    parts.push('p=' + params.page);
+    return parts.join('&');
+}
+
+function cacheResults(key, data) {
+    try {
+        sessionStorage.setItem('vak_search_cache', JSON.stringify({ key: key, data: data, ts: Date.now() }));
+    } catch(e) {}
+}
+
+function getCachedResults() {
+    try {
+        const cached = sessionStorage.getItem('vak_search_cache');
+        if (!cached) return null;
+        const parsed = JSON.parse(cached);
+        if (!parsed.key || !parsed.data) return null;
+        return parsed;
+    } catch(e) {
+        return null;
+    }
+}
+
+function clearSearchCache() {
+    try { sessionStorage.removeItem('vak_search_cache'); } catch(e) {}
+}
+
+function clearSearchFromSession() {
+    fetch('/api/clear_search', { method: 'POST' }).catch(() => {});
+}
+
+function renderResults(data) {
+    const infoEl = document.getElementById('results-info');
+    const countEl = document.getElementById('results-count');
+    const resultsEl = document.getElementById('results');
+    const data_ = data || { total: 0, page: 1, total_pages: 1, adverts: [] };
+
+    if (data_.total === 0) {
+        infoEl.style.display = 'none';
+        resultsEl.innerHTML = '<div class="empty-state"><p>Ничего не найдено</p></div>';
+        clearSearchCache();
+        return;
+    }
+
+    infoEl.style.display = 'block';
+    countEl.textContent = 'Найдено: ' + data_.total + ' (стр. ' + data_.page + ' из ' + data_.total_pages + ')';
+
+    let html = '';
+    data_.adverts.forEach(a => {
+        const specText = a.specialty_cipher ? a.specialty_cipher + ' — ' + (a.specialty_text || '') : '';
+        const supText = a.supervisor_name ? ' | Руководитель: ' + a.supervisor_name : '';
+        html += '<div class="result-item" onclick="location.href=\'/detail/' + a.id + '\'">' +
+            '<div class="result-header">' +
+            '<a href="/detail/' + a.id + '">' + (a.fio || 'Неизвестно') + '</a>' +
+            '<span class="pub-badge">' + a.pub_count + ' публ.</span>' +
+            '</div>' +
+            '<div class="result-meta">' + (a.date_defend || '') + ' | ' + specText + supText + '</div>' +
+            (a.dissertation_name ? '<div class="result-title">' + a.dissertation_name + '</div>' : '') +
+            '</div>';
+    });
+
+    resultsEl.innerHTML = html;
+    renderPagination(data_);
+
+    const cacheKey = getSearchCacheKey({ specialties: lastSearchParams.specialties || [], date_from: lastSearchParams.date_from || '', date_to: lastSearchParams.date_to || '', query: lastSearchParams.query || '', page: lastSearchParams.page || 1, is_show_all: lastSearchParams.is_show_all });
+    cacheResults(cacheKey, data_);
+}
+
+function renderPagination(data) {
+    const pagEl = document.getElementById('pagination');
+    if (data.total_pages <= 1) {
+        pagEl.innerHTML = '';
+        return;
+    }
+
+    let html = '';
+    if (data.page > 1) {
+        html += '<a href="#" class="page-link" onclick="goToPage(' + (data.page - 1) + '); return false;">← Назад</a>';
+    }
+    for (let i = 1; i <= Math.min(data.total_pages, 5); i++) {
+        html += '<a href="#" class="page-link' + (i === data.page ? ' active' : '') + '" onclick="goToPage(' + i + '); return false;">' + i + '</a>';
+    }
+    if (data.page < data.total_pages) {
+        html += '<a href="#" class="page-link" onclick="goToPage(' + (data.page + 1) + '); return false;">Вперёд →</a>';
+    }
+    pagEl.innerHTML = html;
+}
+
+function goToPage(page) {
+    performSearch(page, lastSearchParams.specialties.length === 0);
+}
+
+function resetSearch() {
+    clearForm();
+    clearSearchFromSession();
+    document.getElementById('results').innerHTML = '<div class="empty-state"><p>Нажмите "Найти" с выбранной специальностью или "Показать всё из БД"</p></div>';
+    document.getElementById('results-info').style.display = 'none';
+}
+
+// Search form submit
+document.getElementById('search-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    performSearch(1, false);
+});
+
+// Show all button
+showAllBtn.addEventListener('click', () => {
+    performSearch(1, true);
+});
+
+// Browser back/forward
+window.addEventListener('popstate', (e) => {
+    let params;
+    let hasState = false;
+    if (e.state) {
+        params = {
+            specialties: e.state.specialties || [],
+            date_from: e.state.date_from || '',
+            date_to: e.state.date_to || '',
+            query: e.state.query || '',
+            page: parseInt(window.location.search.match(/page=(\d+)/)?.[1] || '1')
+        };
+        hasState = true;
+    } else {
+        params = parseUrlParams();
+    }
+    setFormFromParams(params);
+    lastSearchParams = { ...params };
+
+    const cache = getCachedResults();
+    if (cache) {
+        const currentKey = getSearchCacheKey({ specialties: params.specialties, date_from: params.date_from, date_to: params.date_to, query: params.query, page: params.page, is_show_all: false });
+        if (cache.key === currentKey) {
+            renderResults(cache.data);
+            return;
+        }
+    }
+    if (hasState && (params.specialties.length > 0 || params.query || params.date_from || params.date_to)) {
+        performSearch(params.page, params.specialties.length === 0);
+    } else if (cache) {
+        renderResults(cache.data);
+    } else {
+        performSearch(params.page, params.specialties.length === 0);
+    }
+});
+
+// Restore on page load
+document.addEventListener('DOMContentLoaded', () => {
+    const params = parseUrlParams();
+    setFormFromParams(params);
+    lastSearchParams = { ...params };
+    if (params.specialties.length > 0 || window.location.search.includes('specialties=')) {
+        const groups = document.querySelectorAll('.spec-group');
+        groups.forEach(g => g.classList.add('expanded'));
+        performSearch(params.page, params.specialties.length === 0);
+    }
+});
+
+function expandAll() {
+    const groups = document.querySelectorAll('.spec-group');
+    const allExpanded = Array.from(groups).every(g => g.classList.contains('expanded'));
+    groups.forEach(g => {
+        if (allExpanded) {
+            g.classList.remove('expanded');
+        } else {
+            g.classList.add('expanded');
+        }
+    });
+}
+</script>
+{% endblock %}
