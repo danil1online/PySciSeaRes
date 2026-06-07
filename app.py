@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from auth import init_users, login as auth_login, create_user, delete_user, get_all_users
 from search import search_adverts, get_advert_detail, get_all_specialties
 from daily_sync import init_db
+from qa import process_question
 from config import SESSION_SECRET_KEY, AUTOREFS_DIR
 
 app = Flask(__name__)
@@ -76,7 +77,8 @@ def logout():
 @login_required
 def search_page():
     specialties = get_all_specialties()
-    return render_template("search.html", specialties=specialties, adverts=[], page=1, total=0, total_pages=0)
+    from config import MAX_SPECIALTIES
+    return render_template("search.html", specialties=specialties, adverts=[], page=1, total=0, total_pages=0, MAX_SPECS=MAX_SPECIALTIES)
 
 
 @app.route("/api/search")
@@ -199,6 +201,25 @@ def detail(advert_id):
                     qs_parts.append((k, v))
             back_qs = urlencode(qs_parts)
     return render_template("detail.html", advert=advert, back_qs=back_qs)
+
+
+# ======================== QA / LLM CHAT ========================
+
+@app.route("/qa")
+@login_required
+def qa_page():
+    return render_template("qa.html")
+
+
+@app.route("/api/qa", methods=["POST"])
+@login_required
+def api_qa():
+    data = request.get_json(silent=True) or {}
+    question = data.get("question", "").strip()
+    if not question:
+        return jsonify({"error": "Вопрос не задан"}), 400
+    result = process_question(question)
+    return jsonify(result)
 
 
 # ======================== ADMIN ========================

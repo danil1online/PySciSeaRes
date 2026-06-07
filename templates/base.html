@@ -12,6 +12,7 @@
             <a href="{{ url_for('search_page') }}" class="nav-brand">ВАК Диссертации</a>
             <div class="nav-links">
                 <a href="{{ url_for('search_page') }}">Поиск</a>
+                <a href="{{ url_for('qa_page') }}">Вопросы</a>
                 {% if session.get('user', {}).get('is_admin') %}
                 <a href="{{ url_for('admin_page') }}">Админ</a>
                 {% endif %}

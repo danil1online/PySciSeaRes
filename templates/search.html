@@ -25,19 +25,25 @@
             </div>
 
             <div class="form-group">
-                <label>Выберите группы специальностей (или разверните группу и выберите отдельные специальности): <span id="group-count">0</span> групп | <span id="spec-count">0</span> спец.</label>
-                <div class="specialties-group-list" id="specialties-group-list">
+                <label>Специальности <span class="spec-count-display" id="spec-count">0/{{ MAX_SPECS }}</span></label>
+
+                <input type="text" id="spec-search-input" class="spec-search-input" placeholder="Поиск по шифру или названию...">
+
+                <div class="specialties-list-compact" id="specialties-list-compact">
                     {% for group in specialties %}
-                    <div class="spec-group" data-group-key="{{ group.key }}">
-                        <label class="spec-group-header">
-                            <input type="checkbox" name="groups" value="{{ group.key }}">
-                            <span class="group-name">{{ group.key }} — {{ group.name }}</span>
+                    <div class="spec-group-compact" data-group-key="{{ group.key }}">
+                        <button type="button" class="spec-group-compact-header" data-key="{{ group.key }}">
+                            <span class="group-expand-icon">+</span>
+                            <label class="group-checkbox-label">
+                                <input type="checkbox" name="groups" value="{{ group.key }}">
+                                <span class="group-name-text">{{ group.key }}</span>
+                                <span class="group-name-full">{{ group.name }}</span>
+                            </label>
                             <span class="group-count-badge">({{ group.specialties|length }})</span>
-                            <span class="group-toggle">▶</span>
-                        </label>
-                        <div class="spec-group-body">
+                        </button>
+                        <div class="spec-group-compact-body" id="body-{{ group.key }}">
                             {% for spec in group.specialties %}
-                            <label class="spec-checkbox">
+                            <label class="spec-item-compact">
                                 <input type="checkbox" name="specialties" value="{{ spec.cipher }}" data-group="{{ group.key }}">
                                 <span>{{ spec.cipher }} — {{ spec.name }}</span>
                             </label>
@@ -48,16 +54,20 @@
                 </div>
             </div>
 
+            <div class="selected-specs-bar" id="selected-specs">
+                <span class="placeholder" id="selected-placeholder">Выберите специальности или группы...</span>
+            </div>
+
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary" id="search-btn">Найти</button>
                 <button type="button" class="btn btn-primary" id="show-all-btn">Показать всё из БД</button>
-                <button type="button" class="btn btn-secondary" onclick="expandAll()">Свернуть/развернуть группы</button>
-                <button type="button" class="btn btn-danger btn-sm" id="reset-btn" onclick="resetSearch()">Сбросить результаты поиска</button>
+                <button type="button" class="btn btn-secondary" id="toggle-all-btn">Развернуть/свернуть всё</button>
+                <button type="button" class="btn btn-danger btn-sm" id="reset-btn" onclick="resetSearch()">Сбросить</button>
             </div>
         </form>
 
         <div class="spec-selection">
-            <div class="selected-specs" id="selected-specs">
+            <div class="selected-specs" id="selected-specs-tags">
                 <span class="placeholder">Выберите специальности...</span>
             </div>
         </div>
@@ -78,25 +88,23 @@
 
 {% block scripts %}
 <script>
+const MAX_SPECS = {{ MAX_SPECS if MAX_SPECS else 5 }};
 const groupCheckboxes = document.querySelectorAll('input[name="groups"]');
 const specCheckboxes = document.querySelectorAll('input[name="specialties"]');
 const specCountEl = document.getElementById('spec-count');
-const groupCountEl = document.getElementById('group-count');
-const selectedSpecsEl = document.getElementById('selected-specs');
+const selectedSpecsEl = document.getElementById('selected-specs-tags');
+const selectedPlaceholder = document.getElementById('selected-placeholder');
 const resetBtn = document.getElementById('reset-btn');
 const showAllBtn = document.getElementById('show-all-btn');
 const searchBtn = document.getElementById('search-btn');
-const MAX_SPECS = 5;
+const toggleAllBtn = document.getElementById('toggle-all-btn');
+const specSearchInput = document.getElementById('spec-search-input');
 let lastSearchParams = {};
 
 function getGroupAllCiphers(groupKey) {
-    const group = document.querySelector(`.spec-group[data-group-key="${groupKey}"]`);
+    const group = document.querySelector(`.spec-group-compact[data-group-key="${groupKey}"]`);
     if (!group) return [];
     return Array.from(group.querySelectorAll('input[name="specialties"]')).map(cb => cb.value);
-}
-
-function getGroupAllCount(groupKey) {
-    return getGroupAllCiphers(groupKey).length;
 }
 
 function isGroupFullySelected(groupKey) {
@@ -132,6 +140,15 @@ function toggleGroup(groupKey, forceState) {
     updateSpecCount();
 }
 
+function toggleGroupExpand(groupKey) {
+    const body = document.getElementById('body-' + groupKey);
+    if (!body) return;
+    const isExpanded = body.style.display === 'block';
+    body.style.display = isExpanded ? 'none' : 'block';
+    const icon = document.querySelector(`.spec-group-compact-header[data-key="${groupKey}"] .group-expand-icon`);
+    if (icon) icon.textContent = isExpanded ? '+' : '−';
+}
+
 function updateSpecCount() {
     const checked = document.querySelectorAll('input[name="specialties"]:checked');
     const selectedCount = checked.length;
@@ -141,19 +158,21 @@ function updateSpecCount() {
     groupCheckboxes.forEach(gcb => {
         if (gcb.checked) groupCount++;
     });
-    groupCountEl.textContent = groupCount;
 
     selectedSpecsEl.innerHTML = '';
+    selectedPlaceholder.style.display = 'none';
+
     if (selectedCount === 0 && groupCount === 0) {
-        selectedSpecsEl.innerHTML = '<span class="placeholder">Выберите специальности...</span>';
+        selectedSpecsEl.innerHTML = '<span class="placeholder">Выберите специальности или группы...</span>';
     } else {
         if (groupCount > 0) {
             groupCheckboxes.forEach(gcb => {
                 if (gcb.checked) {
                     const span = document.createElement('span');
                     span.className = 'spec-tag';
-                    span.textContent = gcb.value + ' (группа)';
-                    span.style.background = '#e3f2fd';
+                    const allCiphers = getGroupAllCiphers(gcb.value);
+                    span.textContent = gcb.value + ' (группа, ' + allCiphers.length + ' спец.)';
+                    span.style.background = '#dbeafe';
                     span.onclick = () => toggleGroup(gcb.value, false);
                     selectedSpecsEl.appendChild(span);
                 }
@@ -161,18 +180,18 @@ function updateSpecCount() {
         }
         if (selectedCount > 0 && groupCount > 0) {
             const sep = document.createElement('span');
-            sep.style.cssText = 'color:#999;margin:0 5px;';
+            sep.style.cssText = 'color:#999;margin:0 5px;font-size:0.8rem;';
             sep.textContent = '+';
             selectedSpecsEl.appendChild(sep);
         }
         Array.from(checked).forEach(cb => {
-            if (!cb.closest('.spec-group-body') || !isGroupFullySelected(cb.dataset.group)) {
+            if (!cb.closest('.spec-group-compact-body') || !isGroupFullySelected(cb.dataset.group)) {
                 const span = document.createElement('span');
                 span.className = 'spec-tag';
                 span.textContent = cb.value;
                 span.onclick = () => {
                     cb.checked = false;
-                    const g = cb.closest('.spec-group-body')?.querySelector(`input[name="groups"]`);
+                    const g = cb.closest('.spec-group-compact-body')?.querySelector(`input[name="groups"]`);
                     if (g) g.checked = false;
                     updateSpecCount();
                 };
@@ -203,8 +222,20 @@ function updateSpecCount() {
     });
 }
 
+// Group header click: toggle expand
+document.querySelectorAll('.spec-group-compact-header').forEach(header => {
+    header.addEventListener('click', (e) => {
+        // Don't toggle expand if clicking on checkbox
+        if (e.target.type === 'checkbox') return;
+        toggleGroupExpand(header.dataset.key);
+    });
+});
+
 groupCheckboxes.forEach(cb => {
     cb.addEventListener('change', () => {
+        if (cb.checked) {
+            toggleGroupExpand(cb.value);
+        }
         toggleGroup(cb.value);
     });
 });
@@ -445,6 +476,50 @@ showAllBtn.addEventListener('click', () => {
     performSearch(1, true);
 });
 
+// Toggle all groups
+toggleAllBtn.addEventListener('click', () => {
+    const allExpanded = Array.from(document.querySelectorAll('.spec-group-compact-header .group-expand-icon')).every(i => i.textContent === '−');
+    document.querySelectorAll('.spec-group-compact-header').forEach(header => {
+        toggleGroupExpand(header.dataset.key);
+    });
+});
+
+// Filter specialties
+specSearchInput.addEventListener('input', () => {
+    const query = specSearchInput.value.toLowerCase().trim();
+    document.querySelectorAll('.spec-group-compact').forEach(group => {
+        const groupKey = group.dataset.groupKey;
+        const items = group.querySelectorAll('.spec-item-compact');
+        let hasMatch = false;
+
+        items.forEach(item => {
+            const text = item.textContent.toLowerCase();
+            const match = !query || text.includes(query);
+            item.style.display = match ? '' : 'none';
+            if (match) hasMatch = true;
+        });
+
+        // Check if group name matches
+        const groupName = group.querySelector('.group-name-full').textContent.toLowerCase();
+        const groupCipher = group.querySelector('.group-name-text').textContent.toLowerCase();
+        if (!hasMatch && (query === '' || groupName.includes(query) || groupCipher.includes(query))) {
+            hasMatch = true;
+            // Expand and show all items when group itself matches
+            items.forEach(item => { item.style.display = ''; });
+        }
+
+        group.style.display = hasMatch ? '' : 'none';
+
+        // Auto-expand groups that have matches
+        if (query && hasMatch) {
+            const body = document.getElementById('body-' + groupKey);
+            if (body) body.style.display = 'block';
+            const icon = group.querySelector('.group-expand-icon');
+            if (icon) icon.textContent = '−';
+        }
+    });
+});
+
 // Browser back/forward
 window.addEventListener('popstate', (e) => {
     let params;
@@ -487,22 +562,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setFormFromParams(params);
     lastSearchParams = { ...params };
     if (params.specialties.length > 0 || window.location.search.includes('specialties=')) {
-        const groups = document.querySelectorAll('.spec-group');
-        groups.forEach(g => g.classList.add('expanded'));
         performSearch(params.page, params.specialties.length === 0);
     }
 });
-
-function expandAll() {
-    const groups = document.querySelectorAll('.spec-group');
-    const allExpanded = Array.from(groups).every(g => g.classList.contains('expanded'));
-    groups.forEach(g => {
-        if (allExpanded) {
-            g.classList.remove('expanded');
-        } else {
-            g.classList.add('expanded');
-        }
-    });
-}
 </script>
 {% endblock %}
