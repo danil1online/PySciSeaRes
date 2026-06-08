@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 
 import requests
 import pdfplumber
+import logging
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (
