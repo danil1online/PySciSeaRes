@@ -17,18 +17,21 @@ SUPERVISOR_SYSTEM_PROMPT = (
 )
 
 
+def extract_supervisor_from_pdf_text(text):
+    """Извлекает руководителя из текста (PDF уже прочитан снаружи)."""
+    return _send_supervisor_request(text)
+
+
 def extract_supervisor_from_pdf(pdf_path):
+    """Извлекает руководителя из PDF-файла (legacy, для обратной совместимости)."""
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            # Read pages 1-3 (first half to second page)
             text = ""
             pages_to_read = min(3, len(pdf.pages))
             for i in range(pages_to_read):
                 t = pdf.pages[i].extract_text() or ""
                 text += "\n" + t
-
-        return _send_supervisor_request(text)
-
+        return extract_supervisor_from_pdf_text(text)
     except Exception as e:
         print(f"  Ошибка чтения PDF для руководителя {pdf_path}: {e}")
         return {"supervisor_name": None, "supervisor_work": None}

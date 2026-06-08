@@ -6,8 +6,11 @@
 import sys
 import os
 import re
+import gc
 import time
 import sqlite3
+import resource
+import psutil
 from datetime import datetime, timedelta
 
 import requests
@@ -23,12 +26,209 @@ from config import (
 
 # Import extraction modules
 from extractors.publications import (
-    extract_publications_from_pdf,
+    extract_publications_from_pdf_text,
     parse_pub_to_json,
 )
 from extractors.supervisor import (
-    extract_supervisor_from_pdf,
+    extract_supervisor_from_pdf_text,
 )
+
+# ======================== MEMORY CONTROL ========================
+
+# Настройки: 16 ГБ RAM, оставляем 2 ГБ на систему
+MAX_MEMORY_MB = 12 * 1024  # 12 ГБ — мягкий лимит
+CRITICAL_MEMORY_MB = 14 * 1024  # 14 ГБ — критический, аварийная остановка
+BATCH_SIZE = 10  # обработать N объявлений и сбросить память
+gc_threshold = 0
+
+def get_memory_mb():
+    """Возвращает потребление памяти процесса в МБ."""
+    proc = psutil.Process(os.getpid())
+    return proc.memory_info().rss / (1024 * 1024)
+
+
+def check_memory():
+    """Проверяет потребление памяти. При превышении — сброс GC."""
+    mem = get_memory_mb()
+    if mem >= CRITICAL_MEMORY_MB:
+        print(f"\n  !!! КРИТИЧЕСКАЯ ПАМЯТЬ: {mem:.0f} МБ, аварийная остановка !!!")
+        sys.exit(1)
+    if mem >= MAX_MEMORY_MB:
+        print(f"\n  Ограничение памяти: {mem:.0f} МБ, сброс GC...")
+        force_gc()
+
+
+def force_gc():
+    """Принудительный сбор мусора + очистка кэша SQLite."""
+    global gc_threshold
+    before = gc.get_count()[0]
+    gc.collect()
+    gc.collect()
+    gc.collect()
+    after = gc.get_count()[0]
+    print(f"    GC: {before} -> {after} объектов в gen0")
+
+
+def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids):
+    """Обрабатывает одно объявление: проверка, скачивание, извлечение.
+
+    Возвращает True если объявление обработано, False если пропущено/ошибка.
+    """
+    adv_id = advert["id"]
+    if adv_id in processed_ids:
+        return False
+    processed_ids.add(adv_id)
+
+    fio = advert.get("fio", "Неизвестно")
+    date_defend = advert.get("date_defend", "")
+    counters["processed"] += 1
+
+    print(f"\n  [{adv_id[:8]}...] {fio} | {date_defend}")
+
+    # Get detail
+    detail = get_advert_detail(adv_id)
+    if not detail:
+        print("    Ошибка получения детали")
+        counters["errors"] += 1
+        return True
+
+    # Save advert
+    c = conn.cursor()
+    try:
+        c.execute("""INSERT OR REPLACE INTO adverts (
+            id, old_id, date_defend, fio, dissertation_name,
+            specialty_cipher, specialty_text,
+            council_cipher, defend_org, org_address, org_phone,
+            autoref_url, autoref_path, downloaded
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            detail.get("id"),
+            detail.get("old_id"),
+            detail.get("date_defend"),
+            detail.get("fio"),
+            detail.get("dissertation_name"),
+            spec_cipher,
+            spec_name,
+            detail.get("council_cipher"),
+            detail.get("defend_org"),
+            detail.get("org_address"),
+            detail.get("org_phone"),
+            detail.get("autoref_site"),
+            None,  # autoref_path — заполняется после скачивания
+            0,
+        ))
+        conn.commit()
+
+        # Check if newly inserted or updated
+        c.execute("SELECT COUNT(*) FROM adverts WHERE id = ?", (adv_id,))
+        if c.fetchone()[0] == 1:
+            counters["new"] += 1
+        else:
+            counters["updated"] += 1
+
+    except sqlite3.Error as e:
+        print(f"    Ошибка БД: {e}")
+        counters["errors"] += 1
+        return True
+
+    # Check if enough publications already exist for this advert
+    c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))
+    existing_count = c.fetchone()[0]
+    if existing_count >= 8:
+        print(f"    Пропуск: уже есть {existing_count} публикаций в БД")
+        counters["skipped"] += 1
+        return True
+
+    # Download autoref
+    autoref_url = detail.get("autoref_site")
+    if autoref_url:
+        save_path, status, _ = download_autoref(autoref_url, fio, date_defend)
+        print(f"    Автореферат: {status}", end="")
+        if save_path:
+            size_kb = os.path.getsize(save_path) // 1024
+            print(f" ({size_kb} КБ)", end="")
+            counters["downloaded"] += 1
+            counters["extracted"] += 1
+
+            # Update path in DB and extract specialty name from PDF
+            c.execute("UPDATE adverts SET autoref_path = ?, downloaded = 1 WHERE id = ?",
+                      (save_path, adv_id))
+
+            # Extract specialty from PDF first page (single page, minimal memory)
+            pdf_cipher, pdf_name = extract_specialty_from_pdf(save_path)
+            if pdf_name and not spec_name:
+                # Update specialty_text from PDF if sci_spec.txt has no name
+                c.execute("UPDATE adverts SET specialty_text = ? WHERE id = ?",
+                          (pdf_name, adv_id))
+                print(f"\n    Specialty из PDF: {pdf_cipher} - {pdf_name}", end="")
+            conn.commit()
+
+            # --- Extract ALL data from PDF in ONE pass ---
+            print("\n    Извлечение данных из PDF...", end="")
+            try:
+                # Open PDF once, read text once, close
+                pdf_full_text = _read_pdf_full(save_path)
+
+                # Extract publications (using extracted text)
+                raw_pubs, found_section, llm_time = extract_publications_from_pdf_text(
+                    pdf_full_text
+                )
+                struct_pubs = parse_pub_to_json(raw_pubs)
+                c.execute("DELETE FROM publications WHERE advert_id = ?", (adv_id,))
+                for num, p in enumerate(struct_pubs, 1):
+                    c.execute(
+                        "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages) VALUES (?,?,?,?,?,?,?)",
+                        (adv_id, num, p["authors"], p["title"], p["journal"], p["year"], p["pages"])
+                    )
+                conn.commit()
+                print(f" OK ({len(struct_pubs)} публикаций)", end="")
+                if found_section:
+                    print(f"\n      Раздел: {found_section}")
+                if llm_time:
+                    print(f"\n      LLM время: {llm_time:.1f}с")
+
+                # Extract supervisor (using same text, pages 1-3)
+                print("    Извлечение руководителя...", end="")
+                sup = extract_supervisor_from_pdf_text(pdf_full_text)
+                sup_name = sup.get("supervisor_name")
+                sup_work = sup.get("supervisor_work")
+                c.execute("UPDATE adverts SET supervisor_name = ?, supervisor_work = ? WHERE id = ?",
+                          (sup_name, sup_work, adv_id))
+                conn.commit()
+                if sup_name:
+                    print(f" OK ({sup_name})")
+                else:
+                    print(" (не найден)")
+
+            except Exception as e:
+                print(f" Ошибка извлечения: {e}")
+
+            # Clear PDF text from memory after processing
+            del pdf_full_text
+
+            # Memory check after each advert
+            if counters["processed"] % BATCH_SIZE == 0:
+                check_memory()
+        else:
+            print()
+    else:
+        print("    Нет ссылки на автореферат")
+
+    return True
+
+
+def _read_pdf_full(pdf_path):
+    """Считывает весь текст PDF в строку. Закрывает файл."""
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            parts = []
+            for page in pdf.pages:
+                t = page.extract_text() or ""
+                parts.append(t)
+            return "\n".join(parts)
+    except Exception as e:
+        print(f"\n  Ошибка чтения PDF {pdf_path}: {e}")
+        return ""
+
 
 # ======================== DATABASE ========================
 
@@ -254,9 +454,15 @@ def extract_specialty_from_pdf(pdf_path):
 # ======================== MAIN SYNC ========================
 
 def main():
+    global gc_threshold
+
     print("=" * 70)
     print("ЕЖЕДНЕВНЫЙ СИНХРОНИЗАЦИОННЫЙ СКРИПТ")
     print(f"Дата запуска: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # Memory report
+    mem = get_memory_mb()
+    print(f"Начало: потребление памяти {mem:.0f} МБ / лимит {MAX_MEMORY_MB} МБ")
     print("=" * 70)
 
     conn = init_db()
@@ -275,156 +481,49 @@ def main():
         return
 
     # Counters
-    total_new = 0
-    total_updated = 0
-    total_downloaded = 0
-    total_extracted = 0
-    total_errors = 0
-    total_skipped = 0
+    counters = {
+        "new": 0,
+        "updated": 0,
+        "downloaded": 0,
+        "extracted": 0,
+        "errors": 0,
+        "skipped": 0,
+        "processed": 0,
+    }
 
     processed_ids = set()
 
-    for spec_cipher, spec_name in specs:
-        print(f"\nОбработка специальности {spec_cipher} — {spec_name}")
+    for spec_idx, (spec_cipher, spec_name) in enumerate(specs):
+        print(f"\n{'='*70}")
+        print(f"СПЕЦИАЛЬНОСТЬ {spec_idx + 1}/{len(specs)}: {spec_cipher} — {spec_name}")
+        print(f"{'='*70}")
+
         adverts = search_adverts(spec_cipher, date_from, date_to)
         print(f"  Найдено: {len(adverts)}")
 
         for advert in adverts:
-            adv_id = advert["id"]
-            if adv_id in processed_ids:
-                continue
-            processed_ids.add(adv_id)
-
-            fio = advert.get("fio", "Неизвестно")
-            date_defend = advert.get("date_defend", "")
-            print(f"\n  [{adv_id[:8]}...] {fio} | {date_defend}")
-
-            # Get detail
-            detail = get_advert_detail(adv_id)
-            if not detail:
-                print("    Ошибка получения детали")
-                total_errors += 1
-                continue
-
-            # Save advert
-            c = conn.cursor()
             try:
-                c.execute("""INSERT OR REPLACE INTO adverts (
-                    id, old_id, date_defend, fio, dissertation_name,
-                    specialty_cipher, specialty_text,
-                    council_cipher, defend_org, org_address, org_phone,
-                    autoref_url, autoref_path, downloaded
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
-                    detail.get("id"),
-                    detail.get("old_id"),
-                    detail.get("date_defend"),
-                    detail.get("fio"),
-                    detail.get("dissertation_name"),
-                    spec_cipher,
-                    spec_name,
-                    detail.get("council_cipher"),
-                    detail.get("defend_org"),
-                    detail.get("org_address"),
-                    detail.get("org_phone"),
-                    detail.get("autoref_site"),
-                    None,  # autoref_path — заполняется после скачивания
-                    0,
-                ))
-                conn.commit()
+                process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids)
+            except KeyboardInterrupt:
+                print("\n\n  !!! Прервано пользователем !!!")
+                check_memory()
+                raise
 
-                # Check if newly inserted or updated
-                c.execute("SELECT COUNT(*) FROM adverts WHERE id = ?", (adv_id,))
-                if c.fetchone()[0] == 1:
-                    total_new += 1
-                else:
-                    total_updated += 1
-
-            except sqlite3.Error as e:
-                print(f"    Ошибка БД: {e}")
-                total_errors += 1
-                continue
-
-            # Check if enough publications already exist for this advert
-            c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))
-            existing_count = c.fetchone()[0]
-            if existing_count >= 8:
-                print(f"    Пропуск: уже есть {existing_count} публикаций в БД")
-                total_skipped += 1
-                continue
-
-            # Download autoref
-            autoref_url = detail.get("autoref_site")
-            if autoref_url:
-                save_path, status, _ = download_autoref(autoref_url, fio, date_defend)
-                print(f"    Автореферат: {status}", end="")
-                if save_path:
-                    size_kb = os.path.getsize(save_path) // 1024
-                    print(f" ({size_kb} КБ)", end="")
-                    total_downloaded += 1
-                    total_extracted += 1
-
-                    # Update path in DB and extract specialty name from PDF
-                    c.execute("UPDATE adverts SET autoref_path = ?, downloaded = 1 WHERE id = ?",
-                              (save_path, adv_id))
-
-                    # Extract specialty from PDF first page
-                    pdf_cipher, pdf_name = extract_specialty_from_pdf(save_path)
-                    if pdf_name and not spec_name:
-                        # Update specialty_text from PDF if sci_spec.txt has no name
-                        c.execute("UPDATE adverts SET specialty_text = ? WHERE id = ?",
-                                  (pdf_name, adv_id))
-                        print(f"\n    Specialty из PDF: {pdf_cipher} - {pdf_name}", end="")
-                    conn.commit()
-
-                    # Extract publications (using extractors module)
-                    print("\n    Извлечение публикаций...", end="")
-                    try:
-                        raw_pubs, found_section, llm_time, text_len = extract_publications_from_pdf(save_path)
-                        struct_pubs = parse_pub_to_json(raw_pubs)
-                        c.execute("DELETE FROM publications WHERE advert_id = ?", (adv_id,))
-                        for num, p in enumerate(struct_pubs, 1):
-                            c.execute(
-                                "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages) VALUES (?,?,?,?,?,?,?)",
-                                (adv_id, num, p["authors"], p["title"], p["journal"], p["year"], p["pages"])
-                            )
-                        conn.commit()
-                        print(f" OK ({len(struct_pubs)} публикаций)")
-                        if found_section:
-                            print(f"      Раздел: {found_section}")
-                        if llm_time:
-                            print(f"      LLM время: {llm_time:.1f}с")
-                    except Exception as e:
-                        print(f" Ошибка: {e}")
-
-                    # Extract supervisor (using extractors module)
-                    print("    Извлечение руководителя...", end="")
-                    try:
-                        sup = extract_supervisor_from_pdf(save_path)
-                        sup_name = sup.get("supervisor_name")
-                        sup_work = sup.get("supervisor_work")
-                        c.execute("UPDATE adverts SET supervisor_name = ?, supervisor_work = ? WHERE id = ?",
-                                  (sup_name, sup_work, adv_id))
-                        conn.commit()
-                        if sup_name:
-                            print(f" OK ({sup_name})")
-                        else:
-                            print(" (не найден)")
-                    except Exception as e:
-                        print(f" Ошибка: {e}")
-                else:
-                    print()
-            else:
-                print("    Нет ссылки на автореферат")
+        # Специальность обработана — сброс памяти
+        print(f"\n  specialty GC...")
+        check_memory()
 
     # Summary
     print(f"\n{'='*70}")
     print("ИТОГИ:")
-    print(f"  Новых:           {total_new}")
-    print(f"  Обновлено:       {total_updated}")
-    print(f"  Скачано PDF:     {total_downloaded}")
-    print(f"  Извлечено:       {total_extracted}")
-    print(f"  Пропущено:       {total_skipped}")
-    print(f"  Ошибок:          {total_errors}")
+    print(f"  Новых:           {counters['new']}")
+    print(f"  Обновлено:       {counters['updated']}")
+    print(f"  Скачано PDF:     {counters['downloaded']}")
+    print(f"  Извлечено:       {counters['extracted']}")
+    print(f"  Пропущено:       {counters['skipped']}")
+    print(f"  Ошибок:          {counters['errors']}")
+    final_mem = get_memory_mb()
+    print(f"  Память в конце:  {final_mem:.0f} МБ")
     print(f"{'='*70}")
 
     conn.close()

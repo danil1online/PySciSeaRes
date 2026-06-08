@@ -243,38 +243,42 @@ def _find_publications_section(text):
     return idx, found
 
 
+def extract_publications_from_pdf_text(text):
+    """Извлекает публикации из текста (PDF уже прочитан снаружи)."""
+    idx, found = _find_publications_section(text)
+    if idx < 0:
+        return [], found, None
+
+    pub_text = text[idx:idx + 4000]
+    regex_pubs = _extract_publications_regex(pub_text)
+
+    llm_pubs = []
+    llm_time = None
+    try:
+        llm_section = text[idx:idx + 3500]
+        response, llm_time = _send_to_llm(llm_section)
+        llm_pubs = _parse_llm_publications(response)
+        if len(llm_pubs) > 30:
+            llm_pubs = llm_pubs[:20]
+    except Exception as e:
+        print(f"  Ошибка LLM: {e}")
+
+    publications = _merge_publications(regex_pubs, llm_pubs)
+    return publications, found, llm_time
+
+
 def extract_publications_from_pdf(pdf_path):
+    """Извлекает публикации из PDF-файла (legacy, для обратной совместимости)."""
     try:
         with pdfplumber.open(pdf_path) as pdf:
             text = ""
             for page in pdf.pages:
                 t = page.extract_text() or ""
                 text += "\n" + t
-
-        idx, found = _find_publications_section(text)
-        if idx < 0:
-            return [], found, None, len(text)
-
-        pub_text = text[idx:idx + 4000]
-        regex_pubs = _extract_publications_regex(pub_text)
-
-        llm_pubs = []
-        llm_time = None
-        try:
-            llm_section = text[idx:idx + 3500]
-            response, llm_time = _send_to_llm(llm_section)
-            llm_pubs = _parse_llm_publications(response)
-            if len(llm_pubs) > 30:
-                llm_pubs = llm_pubs[:20]
-        except Exception as e:
-            print(f"  Ошибка LLM: {e}")
-
-        publications = _merge_publications(regex_pubs, llm_pubs)
-        return publications, found, llm_time, len(text)
-
+        return extract_publications_from_pdf_text(text)
     except Exception as e:
         print(f"  Ошибка чтения PDF {pdf_path}: {e}")
-        return [], None, None, 0
+        return [], None, None
 
 
 def parse_publication_to_structured(text):
