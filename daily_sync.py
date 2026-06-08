@@ -344,14 +344,11 @@ def main():
                 total_errors += 1
                 continue
 
-            # Check if enough publications already exist
-            c.execute("""SELECT COUNT(*) FROM publications p
-                         JOIN adverts a ON p.advert_id = a.id
-                         WHERE a.fio = ? AND a.date_defend = ?
-                         AND a.id != ?""", (fio, date_defend, adv_id))
+            # Check if enough publications already exist for this advert
+            c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))
             existing_count = c.fetchone()[0]
             if existing_count >= 8:
-                print(f"    Пропуск: уже есть {existing_count} публикаций у автора с такой же датой защиты")
+                print(f"    Пропуск: уже есть {existing_count} публикаций в БД")
                 total_skipped += 1
                 continue
 
