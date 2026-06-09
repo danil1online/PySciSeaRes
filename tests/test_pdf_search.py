@@ -49,8 +49,12 @@ class MockHTTPServer:
 class TestFindAutorefPdfFromPage:
     """Тесты поиска PDF-автореферата на странице."""
 
-    def test_strategy1_direct_link_text(self):
+    def test_strategy1_direct_link_text(self, monkeypatch):
         """Стратегия 1: текст ссылки содержит 'автореферат'."""
+        def fake_check_pages(url):
+            return 15  # valid page count
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
         html = '''<html><body>
         <a href="https://example.com/avtoref.pdf">Автореферат</a>
         </body></html>'''
@@ -66,8 +70,12 @@ class TestFindAutorefPdfFromPage:
         finally:
             server.shutdown()
 
-    def test_strategy2_context_in_text(self):
+    def test_strategy2_context_in_text(self, monkeypatch):
         """Стратегия 2: 'автореферат' в соседнем тексте."""
+        def fake_check_pages(url):
+            return 25
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
         html = '''<html><body>
         <p>Автореферат диссертации: <a href="https://example.com/file.pdf">Посмотреть файл</a></p>
         </body></html>'''
@@ -83,8 +91,12 @@ class TestFindAutorefPdfFromPage:
         finally:
             server.shutdown()
 
-    def test_strategy3_action_words(self):
+    def test_strategy3_action_words(self, monkeypatch):
         """Стратегия 3: action слова + PDF."""
+        def fake_check_pages(url):
+            return 30
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
         html = '''<html><body>
         <div>
             <span>Автореферат: </span>
@@ -103,8 +115,12 @@ class TestFindAutorefPdfFromPage:
         finally:
             server.shutdown()
 
-    def test_strategy4_fallback_pdf(self):
+    def test_strategy4_fallback_pdf(self, monkeypatch):
         """Стратегия 4: фоллбэк на любой PDF."""
+        def fake_check_pages(url):
+            return 40
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
         html = '''<html><body>
         <a href="https://example.com/any.pdf">Ссылка</a>
         </body></html>'''
@@ -120,8 +136,12 @@ class TestFindAutorefPdfFromPage:
         finally:
             server.shutdown()
 
-    def test_no_pdf_found(self):
+    def test_no_pdf_found(self, monkeypatch):
         """Нет PDF на странице."""
+        def fake_check_pages(url):
+            return 10
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
         html = '''<html><body>
         <a href="https://example.com/page.html">Страница</a>
         </body></html>'''
@@ -137,8 +157,12 @@ class TestFindAutorefPdfFromPage:
         finally:
             server.shutdown()
 
-    def test_relative_url_resolution(self):
+    def test_relative_url_resolution(self, monkeypatch):
         """Тест резолва относительных URL."""
+        def fake_check_pages(url):
+            return 20
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
         html = '''<html><body>
         <p>Автореферат: <a href="/files/avtoref.pdf">Скачать</a></p>
         </body></html>'''
@@ -155,8 +179,12 @@ class TestFindAutorefPdfFromPage:
         finally:
             server.shutdown()
 
-    def test_no_links(self):
+    def test_no_links(self, monkeypatch):
         """Нет ссылок на странице."""
+        def fake_check_pages(url):
+            return 10
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
         html = '''<html><body>
         <p>Просто текст</p>
         </body></html>'''
@@ -172,8 +200,12 @@ class TestFindAutorefPdfFromPage:
         finally:
             server.shutdown()
 
-    def test_http_error(self):
+    def test_http_error(self, monkeypatch):
         """HTTP ошибка."""
+        def fake_check_pages(url):
+            return 10
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
         html = '<html><body>Error</body></html>'
         
         server = MockHTTPServer(19908, {
@@ -207,8 +239,12 @@ class TestFindAutorefPdfFromPageMock:
             result = find_autoref_pdf_from_page('http://example.com/page')
             assert result is None
 
-    def test_mixed_urls(self):
+    def test_mixed_urls(self, monkeypatch):
         """Смешанные URL (абсолютные и относительные)."""
+        def fake_check_pages(url):
+            return 30  # valid
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
         html = '''<html><body>
         <a href="https://external.com/external.pdf">Внешняя</a>
         <a href="/local/local.pdf">Локальная</a>
@@ -222,3 +258,92 @@ class TestFindAutorefPdfFromPageMock:
             # Should return first PDF found (strategy 4)
             assert result is not None
             assert result.endswith('.pdf')
+
+    def test_large_pdf_skipped(self, monkeypatch):
+        """Большой PDF (>50 стр.) пропускается."""
+        call_count = [0]
+        def fake_check_pages(url):
+            call_count[0] += 1
+            return 100  # too large
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
+        html = '''<html><body>
+        <a href="https://example.com/avtoref.pdf">Автореферат</a>
+        </body></html>'''
+        
+        server = MockHTTPServer(19909, {
+            '/page': {'status': 200, 'html': html}
+        })
+        server.start()
+        
+        try:
+            result = find_autoref_pdf_from_page('http://127.0.0.1:19909/page')
+            assert result is None, "Большой PDF должен быть пропущен"
+        finally:
+            server.shutdown()
+
+    def test_alternative_pdf_found(self, monkeypatch):
+        """Если первый PDF большой, находится второй."""
+        def fake_check_pages(url):
+            if 'large' in url:
+                return 100  # too large
+            return 20  # valid
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
+        html = '''<html><body>
+        <a href="https://example.com/large.pdf">Ссылка 1</a>
+        <a href="https://example.com/valid.pdf">Автореферат</a>
+        </body></html>'''
+        
+        server = MockHTTPServer(19910, {
+            '/page': {'status': 200, 'html': html}
+        })
+        server.start()
+        
+        try:
+            result = find_autoref_pdf_from_page('http://127.0.0.1:19910/page')
+            assert 'valid.pdf' in result, "Должен найтись валидный PDF"
+        finally:
+            server.shutdown()
+
+    def test_boundary_50_pages(self, monkeypatch):
+        """PDF ровно 50 страниц — допустимый."""
+        def fake_check_pages(url):
+            return 50
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
+        html = '''<html><body>
+        <a href="https://example.com/boundary.pdf">Автореферат</a>
+        </body></html>'''
+        
+        server = MockHTTPServer(19911, {
+            '/page': {'status': 200, 'html': html}
+        })
+        server.start()
+        
+        try:
+            result = find_autoref_pdf_from_page('http://127.0.0.1:19911/page')
+            assert 'boundary.pdf' in result, "50 страниц должно быть OK"
+        finally:
+            server.shutdown()
+
+    def test_boundary_51_pages(self, monkeypatch):
+        """PDF 51 страница — пропускается."""
+        def fake_check_pages(url):
+            return 51
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        
+        html = '''<html><body>
+        <a href="https://example.com/toobig.pdf">Автореферат</a>
+        </body></html>'''
+        
+        server = MockHTTPServer(19912, {
+            '/page': {'status': 200, 'html': html}
+        })
+        server.start()
+        
+        try:
+            result = find_autoref_pdf_from_page('http://127.0.0.1:19912/page')
+            assert result is None, "51 страница должна быть пропущена"
+        finally:
+            server.shutdown()

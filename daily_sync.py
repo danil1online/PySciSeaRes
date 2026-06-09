@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 import requests
 import pdfplumber
 import logging
+import io
 from bs4 import BeautifulSoup
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 
@@ -361,6 +362,21 @@ def sanitize_filename(name):
     return name[:100]
 
 
+def _check_pdf_page_count(url):
+    """Проверяет количество страниц в PDF-файле. Возвращает число или None при ошибке."""
+    try:
+        resp = requests.get(
+            url,
+            headers={"User-Agent": HEADERS.get("User-Agent", "Mozilla/5.0")},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
+            return len(pdf.pages)
+    except Exception:
+        return None
+
+
 def find_autoref_pdf_from_page(url):
     """Многоуровневый поиск PDF-автореферата на HTML-странице.
 
@@ -369,6 +385,8 @@ def find_autoref_pdf_from_page(url):
     2. Ссылка .pdf, рядом в HTML-тексте есть слово "автореферат"
     3. Ссылка с действием "посмотреть"/"скачать" + .pdf
     4. Первая найденная ссылка на .pdf
+
+    PDF с >50 страницами пропускаются (вероятно, полный текст диссертации).
     """
     try:
         resp = requests.get(
@@ -429,14 +447,23 @@ def find_autoref_pdf_from_page(url):
             current = current.next_sibling
         return " ".join(parts).lower()
 
+    def _is_valid_pdf(url_to_check):
+        """Проверяет PDF на размер страниц (автореферат <=50 стр.)."""
+        pages = _check_pdf_page_count(url_to_check)
+        if pages is None:
+            return False, "Не удалось определить размер PDF"
+        if pages > 50:
+            return False, f"Слишком большой PDF ({pages} стр., автореферат должен быть <=50)"
+        return True, f"{pages} стр."
+
     keywords = {"автореферат", "авторерат", "авторефер",
-                 "дипломная", "магистерская", "кандидат", "доктор"}
+                  "дипломная", "магистерская", "кандидат", "доктор"}
     action_words = {"посмотреть", "посмотреть файл", "скачать", "скачать файл",
                     "открыть", "открыть файл", "загрузить", "загрузить файл",
                     "download", "view", "open", "click"}
 
     links = soup.find_all("a")
-    pdf_links_found = []
+    pdf_candidates = []  # (url, strategy_name, detail_info)
 
     for link in links:
         href = link.get("href", "")
@@ -452,39 +479,58 @@ def find_autoref_pdf_from_page(url):
 
         # Strategy 1: Link text contains "автореферат" keywords
         if any(kw in text for kw in keywords):
-            print(f"    [1] Найдено по тексту ссылки: {full_url}")
-            return full_url
+            valid, detail = _is_valid_pdf(full_url)
+            if valid:
+                print(f"    [1] Найдено по тексту ссылки: {full_url} ({detail})")
+                return full_url
+            else:
+                print(f"    [1] Пропуск ({detail}): {full_url}")
+                continue
 
         # Strategy 2: "автореферат" in surrounding text (parent/sibling)
         ancestor = get_ancestor_text(link)
         siblings = get_sibling_text(link)
         if any(kw in ancestor or kw in siblings for kw in keywords):
-            print(f"    [2] Найдено по контексту: {full_url}")
-            return full_url
+            valid, detail = _is_valid_pdf(full_url)
+            if valid:
+                print(f"    [2] Найдено по контексту: {full_url} ({detail})")
+                return full_url
+            else:
+                print(f"    [2] Пропуск ({detail}): {full_url}")
+                continue
 
         # Strategy 3: Action words ("посмотреть файл", "скачать") + PDF
         if any(w in text for w in action_words):
             if any(kw in ancestor or kw in siblings for kw in keywords):
-                print(f"    [3] Найдено по действию + контекст: {full_url}")
-                return full_url
-            # Even without keywords, action words + PDF are likely candidates
-            pdf_links_found.append(full_url)
+                valid, detail = _is_valid_pdf(full_url)
+                if valid:
+                    print(f"    [3] Найдено по действию + контекст: {full_url} ({detail})")
+                    return full_url
+                else:
+                    print(f"    [3] Пропуск ({detail}): {full_url}")
+                    continue
+            # Collect for fallback
+            pdf_candidates.append((full_url, "action", text))
 
         # Collect all PDF links for fallback
-        pdf_links_found.append(full_url)
+        pdf_candidates.append((full_url, "other", text))
 
-    # Strategy 4: Fallback — first PDF link found
-    if pdf_links_found:
+    # Strategy 4: Fallback — first valid PDF link found
+    if pdf_candidates:
         # Prefer links with "автореферат" in the full page text
         page_text = soup.get_text().lower()
-        for pl in pdf_links_found:
-            if "автореферат" in page_text:
-                print(f"    [4] Фоллбэк (PDF на странице): {pl}")
-                return pl
+        # Sort: action links first, then others
+        pdf_candidates.sort(key=lambda x: 0 if x[1] == "action" else 1)
 
-        # Just return first PDF found
-        print(f"    [4] Фоллбэк (первый PDF): {pdf_links_found[0]}")
-        return pdf_links_found[0]
+        for candidate_url, strategy, detail in pdf_candidates:
+            valid, info = _is_valid_pdf(candidate_url)
+            if valid:
+                strategy_name = {"action": "Фоллбэк (действие)", "other": "Фоллбэк (PDF на странице)"}.get(strategy, "Фоллбэк")
+                print(f"    [4] {strategy_name}: {candidate_url} ({info})")
+                return candidate_url
+
+        # All PDFs too large
+        print(f"    [4] Все PDF на странице слишком большие, пропускаем")
 
     return None
 
