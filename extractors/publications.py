@@ -231,32 +231,53 @@ def _find_publications_section(text):
             break
 
     if idx < 0:
-        list_upper = text_upper.rfind('СПИСОК ОПУБЛИКОВАННЫХ')
+        # Fallback: try broad keywords
+        list_upper = text_upper.rfind('СПИСОК')
+        published_upper = text_upper.rfind('ОПУБЛИКОВАН')
         pub_upper = text_upper.rfind('ПУБЛИКАЦ')
-        if list_upper >= 0:
-            idx = list_upper
-            found = 'СПИСОК ОПУБЛИКОВАННЫХ (fallback)'
-        elif pub_upper >= 0:
-            idx = pub_upper
-            found = 'Публикац (fallback)'
+
+        # Prefer most specific match
+        best = None
+        best_found = None
+
+        if published_upper >= 0:
+            best = published_upper
+            best_found = 'Опубликов (fallback)'
+        if list_upper >= 0 and (best is None or list_upper > best):
+            best = list_upper
+            best_found = 'Список (fallback)'
+        if pub_upper >= 0 and (best is None or pub_upper > best):
+            best = pub_upper
+            best_found = 'Публикац (fallback)'
+
+        if best is not None:
+            idx = best
+            found = best_found
 
     return idx, found
 
 
 def extract_publications_from_pdf_text(text):
-    """Извлекает публикации из текста (PDF уже прочитан снаружи)."""
+    """Извлекает публикации из текста (PDF уже прочитан снаружи).
+    
+    Для LLM используется только последний фрагмент текста (~5 страниц),
+    а не раздел от начала публикаций.
+    """
     idx, found = _find_publications_section(text)
     if idx < 0:
         return [], found, None
 
+    # Regex работает от начала раздела публикаций
     pub_text = text[idx:idx + 4000]
     regex_pubs = _extract_publications_regex(pub_text)
 
     llm_pubs = []
     llm_time = None
     try:
-        llm_section = text[idx:idx + 3500]
-        response, llm_time = _send_to_llm(llm_section)
+        # LLM получает только последние ~5 страниц текста
+        # средняя страница ~2000 символов, берём последние 12000
+        llm_text = text[-12000:] if len(text) > 12000 else text
+        response, llm_time = _send_to_llm(llm_text)
         llm_pubs = _parse_llm_publications(response)
         if len(llm_pubs) > 30:
             llm_pubs = llm_pubs[:20]
