@@ -6,3 +6,4 @@ pdfplumber==0.11.9
 psutil==7.2.2
 pytest==9.0.3
 requests==2.34.2
+guvicorn==26.0.0
