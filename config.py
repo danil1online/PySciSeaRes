@@ -15,7 +15,7 @@ DOWNLOAD_HEADERS = {
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 }
 HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
-MIN_SIZE = 300 * 1024
+MIN_SIZE = 200 * 1024
 
 MAX_PUBLICATIONS = 30
 SYNC_DAYS = 30

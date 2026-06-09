@@ -46,7 +46,7 @@ def test_llm_model():
 
 
 def test_min_size():
-    assert MIN_SIZE == 300 * 1024
+    assert MIN_SIZE == 200 * 1024
     assert MIN_SIZE > 0
 
 

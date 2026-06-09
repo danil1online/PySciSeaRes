@@ -577,7 +577,7 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3):
                     f.write(chunk)
 
             actual_size = os.path.getsize(save_path)
-            if actual_size < 300 * 1024:
+            if actual_size < 200 * 1024:
                 os.remove(save_path)
                 return None, f"Слишком маленький файл ({actual_size // 1024} КБ)", autoref_url
 
