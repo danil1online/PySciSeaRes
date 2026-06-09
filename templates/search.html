@@ -88,7 +88,7 @@
 
 {% block scripts %}
 <script>
-const MAX_SPECS = {{ MAX_SPECS if MAX_SPECS else 5 }};
+const MAX_SPECS = 999999;
 const groupCheckboxes = document.querySelectorAll('input[name="groups"]');
 const specCheckboxes = document.querySelectorAll('input[name="specialties"]');
 const specCountEl = document.getElementById('spec-count');
@@ -282,7 +282,7 @@ function buildPageUrl(page, data) {
 function parseUrlParams() {
     const params = new URLSearchParams(window.location.search);
     const specialtiesStr = params.get('specialties') || '';
-    const specialties = specialtiesStr.split(',').filter(s => s.trim()).slice(0, 5);
+    const specialties = specialtiesStr.split(',').filter(s => s.trim());
     const date_from = params.get('date_from') || '';
     const date_to = params.get('date_to') || '';
     const query = params.get('query') || '';
@@ -336,8 +336,8 @@ function saveSearchToSession(data) {
 function performSearch(page = 1, isShowAll = false) {
     const data = getFormData();
 
-    if (!isShowAll && data.specialties.length === 0) {
-        alert('Выберите хотя бы одну специальность');
+    if (!isShowAll && data.specialties.length === 0 && !data.date_from && !data.date_to && !data.query) {
+        alert('Выберите хотя бы один параметр поиска (специальность, дата или текст)');
         return;
     }
 
@@ -561,7 +561,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const params = parseUrlParams();
     setFormFromParams(params);
     lastSearchParams = { ...params };
-    if (params.specialties.length > 0 || window.location.search.includes('specialties=')) {
+    const hasSearch = params.specialties.length > 0 || params.date_from || params.date_to || params.query || window.location.search.includes('specialties=');
+    if (hasSearch) {
         performSearch(params.page, params.specialties.length === 0);
     }
 });
