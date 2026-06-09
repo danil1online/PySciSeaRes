@@ -336,8 +336,8 @@ function saveSearchToSession(data) {
 function performSearch(page = 1, isShowAll = false) {
     const data = getFormData();
 
-    if (!isShowAll && data.specialties.length === 0 && !data.date_from && !data.date_to && !data.query) {
-        alert('Выберите хотя бы один параметр поиска (специальность, дата или текст)');
+    if (!isShowAll && !data.date_from && !data.date_to && !data.query) {
+        alert('Выберите хотя бы один параметр поиска (дата или текст)');
         return;
     }
 
@@ -445,7 +445,8 @@ function renderPagination(data) {
     if (data.page > 1) {
         html += '<a href="#" class="page-link" onclick="goToPage(' + (data.page - 1) + '); return false;">← Назад</a>';
     }
-    for (let i = 1; i <= Math.min(data.total_pages, 5); i++) {
+    const maxPageLinks = Math.min(data.total_pages, 11);
+    for (let i = 1; i <= maxPageLinks; i++) {
         html += '<a href="#" class="page-link' + (i === data.page ? ' active' : '') + '" onclick="goToPage(' + i + '); return false;">' + i + '</a>';
     }
     if (data.page < data.total_pages) {

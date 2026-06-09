@@ -90,13 +90,14 @@ def api_search():
     query = request.args.get("query", "").strip()
     page = int(request.args.get("page", 1))
 
+    from config import RESULTS_PER_PAGE
     result = search_adverts(
         specialties=specialties or None,
         date_from=date_from if date_from else None,
         date_to=date_to if date_to else None,
         query=query if query else None,
         page=page,
-        per_page=10,
+        per_page=RESULTS_PER_PAGE,
     )
     return jsonify(result)
 
