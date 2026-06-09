@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 import requests
 import pdfplumber
 import logging
+from bs4 import BeautifulSoup
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -360,12 +361,64 @@ def sanitize_filename(name):
     return name[:100]
 
 
+def find_autoref_pdf_from_page(url):
+    """Ищет ссылку на PDF-автореферат на веб-странице."""
+    try:
+        resp = requests.get(
+            url,
+            headers={"User-Agent": HEADERS.get("User-Agent", "Mozilla/5.0")},
+            timeout=30,
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"  Ошибка загрузки страницы {url}: {e}")
+        return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    links = soup.find_all("a")
+
+    keywords = ["автореферат", "авторерат", "авторефер"]
+    pdf_keywords = ["pdf", "pdf"]
+
+    for link in links:
+        href = link.get("href", "")
+        text = (link.get_text() or "").lower()
+        if not href:
+            continue
+
+        # Check if link text contains "автореферат" (case-insensitive)
+        has_keyword = any(kw in text for kw in keywords)
+        if not has_keyword:
+            continue
+
+        # Resolve relative URL
+        if href.startswith("http"):
+            full_url = href
+        else:
+            from urllib.parse import urljoin
+            full_url = urljoin(url, href)
+
+        # Check if it's a PDF
+        if full_url.lower().endswith(".pdf"):
+            return full_url
+
+    return None
+
+
 def download_autoref(autoref_url, fio, date_defend, max_retries=3):
     if not autoref_url:
         return None, "Нет ссылки", autoref_url
+
+    # Step 1: Check if URL is direct PDF link
     url_path = autoref_url.split("?")[0].lower()
     if not url_path.endswith('.pdf'):
-        return None, "Не PDF", autoref_url
+        # Step 2: Try to find PDF link on the page
+        print(f"  Поиск PDF на странице {autoref_url}...", end="")
+        pdf_url = find_autoref_pdf_from_page(autoref_url)
+        if not pdf_url:
+            return None, "Не PDF (ссылка не найдена)", autoref_url
+        print(f" -> {pdf_url}")
+        autoref_url = pdf_url
 
     date_str = date_defend.replace("-", "_") if date_defend else "unknown"
     filename = f"{sanitize_filename(fio)}_{date_str}.pdf"
