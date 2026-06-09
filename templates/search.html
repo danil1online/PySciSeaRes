@@ -411,7 +411,7 @@ function renderResults(data) {
     }
 
     infoEl.style.display = 'block';
-    countEl.textContent = 'Найдено: ' + data_.total + ' (стр. ' + data_.page + ' из ' + data_.total_pages + ')';
+    countEl.textContent = 'Найдено работ и/или авторов: ' + data_.total + ' (стр. ' + data_.page + ' из ' + data_.total_pages + ')';
 
     let html = '';
     data_.adverts.forEach(a => {
