@@ -362,7 +362,14 @@ def sanitize_filename(name):
 
 
 def find_autoref_pdf_from_page(url):
-    """Ищет ссылку на PDF-автореферат на веб-странице."""
+    """Многоуровневый поиск PDF-автореферата на HTML-странице.
+
+    Стратегии (по приоритету):
+    1. Ссылка с текстом "автореферат" + .pdf
+    2. Ссылка .pdf, рядом в HTML-тексте есть слово "автореферат"
+    3. Ссылка с действием "посмотреть"/"скачать" + .pdf
+    4. Первая найденная ссылка на .pdf
+    """
     try:
         resp = requests.get(
             url,
@@ -375,32 +382,109 @@ def find_autoref_pdf_from_page(url):
         return None
 
     soup = BeautifulSoup(resp.text, "html.parser")
-    links = soup.find_all("a")
+    base_url = url
 
-    keywords = ["автореферат", "авторерат", "авторефер"]
-    pdf_keywords = ["pdf", "pdf"]
+    def resolve_href(href):
+        """Резолвит относительные URL."""
+        if not href:
+            return ""
+        if href.startswith("http"):
+            return href
+        from urllib.parse import urljoin
+        return urljoin(base_url, href)
+
+    def is_pdf(href):
+        """Проверяет, ведёт ли ссылка на PDF."""
+        path = resolve_href(href).split("?")[0].lower()
+        return path.endswith(".pdf")
+
+    def get_ancestor_text(element, max_depth=5):
+        """Собирает текст родительских элементов."""
+        text = ""
+        for i in range(max_depth):
+            parent = element.parent
+            if parent is None:
+                break
+            text = parent.get_text() + " " + text
+            if parent.name in ("body", "html"):
+                break
+        return text.lower()
+
+    def get_sibling_text(element):
+        """Собирает текст соседних элементов (предыдущие и следующие 3 узла)."""
+        parts = []
+        current = element.previous_sibling
+        for _ in range(5):
+            if current is None:
+                break
+            t = current.get_text() if hasattr(current, 'get_text') else str(current)
+            parts.append(t)
+            current = current.previous_sibling
+        current = element.next_sibling
+        for _ in range(5):
+            if current is None:
+                break
+            t = current.get_text() if hasattr(current, 'get_text') else str(current)
+            parts.append(t)
+            current = current.next_sibling
+        return " ".join(parts).lower()
+
+    keywords = {"автореферат", "авторерат", "авторефер",
+                 "дипломная", "магистерская", "кандидат", "доктор"}
+    action_words = {"посмотреть", "посмотреть файл", "скачать", "скачать файл",
+                    "открыть", "открыть файл", "загрузить", "загрузить файл",
+                    "download", "view", "open", "click"}
+
+    links = soup.find_all("a")
+    pdf_links_found = []
 
     for link in links:
         href = link.get("href", "")
-        text = (link.get_text() or "").lower()
         if not href:
             continue
 
-        # Check if link text contains "автореферат" (case-insensitive)
-        has_keyword = any(kw in text for kw in keywords)
-        if not has_keyword:
+        text = (link.get_text() or "").strip().lower()
+        full_url = resolve_href(href)
+
+        # Skip non-PDF links for later strategies
+        if not is_pdf(href):
             continue
 
-        # Resolve relative URL
-        if href.startswith("http"):
-            full_url = href
-        else:
-            from urllib.parse import urljoin
-            full_url = urljoin(url, href)
-
-        # Check if it's a PDF
-        if full_url.lower().endswith(".pdf"):
+        # Strategy 1: Link text contains "автореферат" keywords
+        if any(kw in text for kw in keywords):
+            print(f"    [1] Найдено по тексту ссылки: {full_url}")
             return full_url
+
+        # Strategy 2: "автореферат" in surrounding text (parent/sibling)
+        ancestor = get_ancestor_text(link)
+        siblings = get_sibling_text(link)
+        if any(kw in ancestor or kw in siblings for kw in keywords):
+            print(f"    [2] Найдено по контексту: {full_url}")
+            return full_url
+
+        # Strategy 3: Action words ("посмотреть файл", "скачать") + PDF
+        if any(w in text for w in action_words):
+            if any(kw in ancestor or kw in siblings for kw in keywords):
+                print(f"    [3] Найдено по действию + контекст: {full_url}")
+                return full_url
+            # Even without keywords, action words + PDF are likely candidates
+            pdf_links_found.append(full_url)
+
+        # Collect all PDF links for fallback
+        pdf_links_found.append(full_url)
+
+    # Strategy 4: Fallback — first PDF link found
+    if pdf_links_found:
+        # Prefer links with "автореферат" in the full page text
+        page_text = soup.get_text().lower()
+        for pl in pdf_links_found:
+            if "автореферат" in page_text:
+                print(f"    [4] Фоллбэк (PDF на странице): {pl}")
+                return pl
+
+        # Just return first PDF found
+        print(f"    [4] Фоллбэк (первый PDF): {pdf_links_found[0]}")
+        return pdf_links_found[0]
 
     return None
 
