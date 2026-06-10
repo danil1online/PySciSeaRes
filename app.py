@@ -213,6 +213,13 @@ def save_detail(advert_id):
     c = conn.cursor()
 
     # Update advert fields
+    def safe_str(v):
+        if v is None:
+            return ""
+        if not isinstance(v, str):
+            return str(v)
+        return v.strip()
+
     c.execute("""
         UPDATE adverts
         SET supervisor_name = COALESCE(?, ''),
@@ -225,14 +232,14 @@ def save_detail(advert_id):
             defend_org = COALESCE(?, '')
         WHERE id = ?
     """, (
-        data.get("supervisor_name", "").strip(),
-        data.get("supervisor_work", "").strip(),
-        data.get("date_defend", "").strip(),
-        data.get("dissertation_name", "").strip(),
-        data.get("specialty_cipher", "").strip(),
-        data.get("specialty_text", "").strip(),
-        data.get("council_cipher", "").strip(),
-        data.get("defend_org", "").strip(),
+        safe_str(data.get("supervisor_name")),
+        safe_str(data.get("supervisor_work")),
+        safe_str(data.get("date_defend")),
+        safe_str(data.get("dissertation_name")),
+        safe_str(data.get("specialty_cipher")),
+        safe_str(data.get("specialty_text")),
+        safe_str(data.get("council_cipher")),
+        safe_str(data.get("defend_org")),
         advert_id,
     ))
 
@@ -241,11 +248,17 @@ def save_detail(advert_id):
     for pub in pubs:
         pub_id = pub.get("id")
         pub_number = int(pub.get("pub_number", 0))
-        authors = pub.get("authors", "").strip()
-        title = pub.get("title", "").strip()
-        journal = pub.get("journal", "").strip()
-        year = pub.get("year", "")
-        pages = pub.get("pages", "").strip()
+        authors = str(pub.get("authors", "") or "").strip()
+        title = str(pub.get("title", "") or "").strip()
+        journal = str(pub.get("journal", "") or "").strip()
+        pages = str(pub.get("pages", "") or "").strip()
+        year_raw = pub.get("year", "")
+        year_val = None
+        if year_raw:
+            try:
+                year_val = int(year_raw)
+            except (ValueError, TypeError):
+                year_val = None
 
         if pub_id:
             # Update existing
@@ -254,10 +267,9 @@ def save_detail(advert_id):
                 SET pub_number = ?, authors = COALESCE(?, ''), title = COALESCE(?, ''),
                     journal = COALESCE(?, ''), year = ?, pages = COALESCE(?, '')
                 WHERE id = ?
-            """, (pub_number, authors, title, journal, year if year else None, pages, pub_id))
+            """, (pub_number, authors, title, journal, year_val, pages, pub_id))
         elif title:
             # Insert new
-            year_val = int(year) if (year and year.strip()) else None
             c.execute(
                 "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (advert_id, pub_number, authors, title, journal, year_val, pages)
