@@ -42,7 +42,7 @@ def test_llm_api_url():
 
 
 def test_llm_model():
-    assert LLM_MODEL == "Qwen3.5-2B-Q4_K_M.gguf"
+    assert LLM_MODEL == "qwen3.5-4b"
 
 
 def test_min_size():

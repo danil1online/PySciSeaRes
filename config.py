@@ -7,8 +7,8 @@ LLM_RESPONSES_DIR = os.path.join(BASE_DIR, "llm_responses")
 SCI_SPEC_FILE = os.path.join(BASE_DIR, "sci_spec.txt")
 
 API_BASE = "https://vak.gisnauka.ru/api"
-LLM_API_URL = "http://195.133.13.56:8080/v1/chat/completions"
-LLM_MODEL = "Qwen3.5-2B-Q4_K_M.gguf"
+LLM_API_URL = "http://195.133.13.56:1234/v1/chat/completions"
+LLM_MODEL = "qwen3.5-4b"
 
 DOWNLOAD_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"

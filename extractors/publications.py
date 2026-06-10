@@ -20,6 +20,27 @@ PUB_SYSTEM_PROMPT = (
     "Убери ВСЕ дубликаты. Если раздел не найден — верни {\"error\": \"not_found\"}."
 )
 
+PUB_SYSTEM_PROMPT_JSON = (
+    "Ты — помощник по извлечению библиографических данных из авторефератов диссертаций. "
+    "Твоя задача — найти и извлечь ВСЕ публикации автора в разделе "
+    "'ОСНОВНЫЕ ПУБЛИКАЦИИ ПО ТЕМЕ ИССЛЕДОВАНИЯ' или аналогичном. "
+    "Для каждой публикации найди: порядок (номер), авторы (ФИО), "
+    "название статьи, название журнала/издания, год, страницы. "
+    "Верни результат в формате JSON массива. Если публикаций не найдено — верни пустой массив []"
+)
+
+PUB_USER_PROMPT = (
+    "Извлеки все публикации из предоставленного текста автореферата.\n\n"
+    "Каждая публикация должна содержать:\n"
+    "1. authors — ФИО авторов\n"
+    "2. title — название статьи\n"
+    "3. journal — название журнала/издания\n"
+    "4. year — год\n"
+    "5. pages — номера страниц\n\n"
+    "Верни ТОЛЬКО JSON массив, без дополнительного текста.\n\n"
+    "Текст:\n\n{text}"
+)
+
 
 def _send_to_llm(text):
     prompt = (
@@ -57,6 +78,66 @@ def _send_to_llm(text):
             if attempt < 2:
                 time.sleep(2)
     return None, time.time() - start
+
+
+def _send_to_llm_json(text):
+    """Отправляет текст в LLM с промптом для JSON-ответа и возвращает список публикаций."""
+    user_prompt = PUB_USER_PROMPT.format(text=text)
+    start = time.time()
+    for attempt in range(3):
+        try:
+            resp = requests.post(
+                LLM_API_URL,
+                headers=HEADERS,
+                json={
+                    "model": LLM_MODEL,
+                    "messages": [
+                        {"role": "system", "content": PUB_SYSTEM_PROMPT_JSON},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "max_tokens": LLM_MAX_TOKENS,
+                    "temperature": LLM_TEMPERATURE,
+                },
+                timeout=LLM_TIMEOUT,
+            )
+            elapsed = time.time() - start
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"]
+            pubs = _parse_llm_json_response(content)
+            if pubs:
+                return pubs, elapsed
+        except requests.exceptions.Timeout:
+            if attempt < 2:
+                time.sleep(2)
+        except Exception:
+            pass
+    return [], time.time() - start
+
+
+def _parse_llm_json_response(content):
+    """Парсит JSON-ответ от LLM."""
+    if not content:
+        return []
+
+    # Извлекаем JSON из ответа
+    if "```json" in content:
+        json_str = content.split("```json")[1].split("```")[0].strip()
+    elif "```" in content:
+        json_str = content.split("```")[1].split("```")[0].strip()
+    else:
+        start = content.find("[")
+        if start >= 0:
+            json_str = content[start:].strip()
+        else:
+            return []
+
+    try:
+        data = json.loads(json_str)
+        if isinstance(data, list) and len(data) >= 8:
+            return data
+        return []
+    except json.JSONDecodeError:
+        return []
 
 
 def _extract_publications_regex(pub_text):
@@ -260,12 +341,29 @@ def _find_publications_section(text):
 def extract_publications_from_pdf_text(text):
     """Извлекает публикации из текста (PDF уже прочитан снаружи).
     
-    Для LLM используется только последний фрагмент текста (~5 страниц),
-    а не раздел от начала публикаций.
+    Сначала пробует JSON-LLM на последних 5 страницах (~12000 символов).
+    Если получено >=8 публикаций — использует их.
+    Иначе использует старый метод: regex от начала раздела публикаций + старый LLM.
     """
     idx, found = _find_publications_section(text)
+
+    # Берём последние ~5 страниц текста для LLM
+    llm_text = text[-12000:] if len(text) > 12000 else text
+
+    # Шаг 1: пробуем JSON-LLM на последних страницах
+    json_pubs, json_time = _send_to_llm_json(llm_text)
+    if json_pubs:
+        print(f"  JSON-LLM нашёл {len(json_pubs)} публикаций (≥8 — используем)")
+        # Преобразуем JSON-публикации в формат строк для parse_pub_to_json
+        formatted_pubs = []
+        for p in json_pubs:
+            if isinstance(p, dict):
+                formatted_pubs.append(p)
+        return formatted_pubs, found, json_time
+
+    # Шаг 2: fallback на старый метод
     if idx < 0:
-        return [], found, None
+        return [], found, json_time
 
     # Regex работает от начала раздела публикаций
     pub_text = text[idx:idx + 4000]
@@ -275,8 +373,6 @@ def extract_publications_from_pdf_text(text):
     llm_time = None
     try:
         # LLM получает только последние ~5 страниц текста
-        # средняя страница ~2000 символов, берём последние 12000
-        llm_text = text[-12000:] if len(text) > 12000 else text
         response, llm_time = _send_to_llm(llm_text)
         llm_pubs = _parse_llm_publications(response)
         if len(llm_pubs) > 30:
@@ -358,8 +454,20 @@ def parse_pub_to_json(texts):
     pub_jsons = []
     seen = set()
     for t in texts:
-        p = parse_publication_to_structured(t)
-        norm = _normalize_for_dedup(p["title"] if p["title"] else t)
+        # Если уже словарь (JSON-LLM) — используем как есть
+        if isinstance(t, dict):
+            p = {
+                "authors": t.get("authors", ""),
+                "title": t.get("title", ""),
+                "journal": t.get("journal", ""),
+                "year": t.get("year"),
+                "pages": t.get("pages", ""),
+            }
+        else:
+            # Старый формат — парсим строку
+            p = parse_publication_to_structured(t)
+
+        norm = _normalize_for_dedup(p["title"] if p["title"] else "")
         if norm in seen:
             continue
         seen.add(norm)

@@ -179,9 +179,13 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
                 struct_pubs = parse_pub_to_json(raw_pubs)
                 c.execute("DELETE FROM publications WHERE advert_id = ?", (adv_id,))
                 for num, p in enumerate(struct_pubs, 1):
+                    # authors может быть списком — преобразуем в строку
+                    authors = p["authors"]
+                    if isinstance(authors, list):
+                        authors = ", ".join(authors)
                     c.execute(
                         "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages) VALUES (?,?,?,?,?,?,?)",
-                        (adv_id, num, p["authors"], p["title"], p["journal"], p["year"], p["pages"])
+                        (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"])
                     )
                 conn.commit()
                 print(f" OK ({len(struct_pubs)} публикаций)", end="")
