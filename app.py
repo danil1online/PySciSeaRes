@@ -249,6 +249,7 @@ def save_detail(advert_id):
     logging.warning(f"save_detail: advert_id={advert_id}, pubs={len(pubs)}, pubs_data={pubs}")
     inserted = 0
     updated = 0
+    submitted_ids = set()
     for pub in pubs:
         pub_id = pub.get("id")
         pub_number = int(pub.get("pub_number", 0))
@@ -283,26 +284,21 @@ def save_detail(advert_id):
                 (advert_id, pub_number, authors, title, journal, year_val, pages)
             )
             inserted += c.rowcount
+            # Remember newly inserted id so it won't be deleted
+            submitted_ids.add(c.lastrowid)
         else:
             logging.warning(f"save_detail: SKIPPING pub with empty title")
 
-    logging.warning(f"save_detail: inserted={inserted}, updated={updated}, rowcounts")
+    logging.warning(f"save_detail: submitted_ids={submitted_ids}")
 
-    # Delete publications not in the list (removed)
-    submitted_ids = []
-    for p in pubs:
-        pid = p.get("id")
-        if pid:
-            try:
-                submitted_ids.append(int(pid))
-            except (ValueError, TypeError):
-                pass
+    # Delete publications not in the list (removed) - only existing ones
     c.execute("SELECT id FROM publications WHERE advert_id = ?", (advert_id,))
-    current_ids = [r[0] for r in c.fetchall()]
-    to_delete = [pid for pid in current_ids if pid not in submitted_ids]
+    current_ids = set(r[0] for r in c.fetchall())
+    to_delete = current_ids - submitted_ids
+    logging.warning(f"save_detail: current_ids={current_ids}, to_delete={to_delete}")
     if to_delete:
         placeholders = ",".join(["?"] * len(to_delete))
-        c.execute(f"DELETE FROM publications WHERE advert_id = ? AND id IN ({placeholders})", (advert_id, *to_delete))
+        c.execute(f"DELETE FROM publications WHERE advert_id = ? AND id IN ({placeholders})", (advert_id, *sorted(to_delete)))
 
     conn.commit()
     conn.close()
