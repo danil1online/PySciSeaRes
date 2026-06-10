@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from auth import init_users, login as auth_login, create_user, delete_user, get_all_users
-from search import search_adverts, get_advert_detail, get_all_specialties
+from search import search_adverts, get_advert_detail, get_all_specialties, get_db
 from daily_sync import init_db
 from qa import process_question
 from config import SESSION_SECRET_KEY, AUTOREFS_DIR
@@ -202,6 +202,82 @@ def detail(advert_id):
                     qs_parts.append((k, v))
             back_qs = urlencode(qs_parts)
     return render_template("detail.html", advert=advert, back_qs=back_qs)
+
+
+@app.route("/detail/<advert_id>/save", methods=["POST"])
+@login_required
+def save_detail(advert_id):
+    data = request.get_json(silent=True) or {}
+
+    conn = get_db()
+    c = conn.cursor()
+
+    # Update advert fields
+    c.execute("""
+        UPDATE adverts
+        SET supervisor_name = COALESCE(?, ''),
+            supervisor_work = COALESCE(?, ''),
+            date_defend = COALESCE(?, ''),
+            dissertation_name = COALESCE(?, ''),
+            specialty_cipher = COALESCE(?, ''),
+            specialty_text = COALESCE(?, ''),
+            council_cipher = COALESCE(?, ''),
+            defend_org = COALESCE(?, '')
+        WHERE id = ?
+    """, (
+        data.get("supervisor_name", "").strip(),
+        data.get("supervisor_work", "").strip(),
+        data.get("date_defend", "").strip(),
+        data.get("dissertation_name", "").strip(),
+        data.get("specialty_cipher", "").strip(),
+        data.get("specialty_text", "").strip(),
+        data.get("council_cipher", "").strip(),
+        data.get("defend_org", "").strip(),
+        advert_id,
+    ))
+
+    # Handle publications
+    pubs = data.get("publications", [])
+    for pub in pubs:
+        pub_id = pub.get("id")
+        pub_number = int(pub.get("pub_number", 0))
+        authors = pub.get("authors", "").strip()
+        title = pub.get("title", "").strip()
+        journal = pub.get("journal", "").strip()
+        year = pub.get("year", "")
+        pages = pub.get("pages", "").strip()
+
+        if pub_id:
+            # Update existing
+            c.execute("""
+                UPDATE publications
+                SET pub_number = ?, authors = COALESCE(?, ''), title = COALESCE(?, ''),
+                    journal = COALESCE(?, ''), year = ?, pages = COALESCE(?, '')
+                WHERE id = ?
+            """, (pub_number, authors, title, journal, year if year else None, pages, pub_id))
+        elif title:
+            # Insert new
+            c.execute("""
+                INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages)
+                VALUES (?, ?, ?, COALESCE(?, ''), COALESCE(?, ''), ?, COALESCE(?, ''))
+            """, (advert_id, pub_number, authors, title, journal, year if year else None, pages))
+
+    # Delete publications not in the list (removed)
+    submitted_ids = [int(p["id"]) for p in pubs if p.get("id")]
+    c.execute("SELECT id FROM publications WHERE advert_id = ?", (advert_id,))
+    current_ids = [r[0] for r in c.fetchall()]
+    to_delete = [pid for pid in current_ids if pid not in submitted_ids]
+    if to_delete:
+        placeholders = ",".join(["?"] * len(to_delete))
+        c.execute(f"DELETE FROM publications WHERE advert_id = ? AND id IN ({placeholders})", (advert_id, *to_delete))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
+
 
 
 # ======================== QA / LLM CHAT ========================

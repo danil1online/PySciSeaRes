@@ -1166,6 +1166,167 @@ main {
     font-size: 0.85rem;
 }
 
+/* ===== DETAIL EDIT MODE ===== */
+.view-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.edit-row {
+    display: none;
+    align-items: center;
+    gap: 8px;
+}
+
+.edit-value {
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 0.92rem;
+    background: var(--surface);
+    color: var(--text);
+    min-width: 150px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.edit-value:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.edit-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+    color: var(--text-secondary);
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.15s, color 0.15s;
+}
+
+.edit-btn:hover {
+    background: var(--bg);
+    color: var(--primary);
+}
+
+.save-field-btn {
+    background: var(--success);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    transition: background 0.15s;
+}
+
+.save-field-btn:hover {
+    background: #15803d;
+}
+
+.cancel-edit-btn {
+    background: var(--border);
+    color: var(--text);
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    transition: background 0.15s;
+}
+
+.cancel-edit-btn:hover {
+    background: var(--border-hover);
+}
+
+.publications-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.pub-item {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--bg);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    border: 1px solid transparent;
+    transition: border-color 0.15s;
+}
+
+.pub-item:hover {
+    border-color: var(--border);
+}
+
+.pub-fields {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.pub-fields input {
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.88rem;
+    background: var(--surface);
+    color: var(--text);
+    min-width: 120px;
+}
+
+.pub-fields input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.pub-fields input[type="number"] {
+    width: 70px;
+    min-width: auto;
+}
+
+.pub-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.pub-authors-view {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.pub-journal-view {
+    color: var(--text-secondary);
+    font-style: italic;
+    font-size: 0.85rem;
+}
+
+.pub-pages-view {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.save-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    padding-top: 8px;
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
     .nav-content {

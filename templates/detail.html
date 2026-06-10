@@ -14,69 +14,373 @@
         <table class="detail-table">
             <tr>
                 <td class="detail-label">Дата защиты:</td>
-                <td>{{ advert.date_defend or '—' }}</td>
+                <td>
+                    <span class="view-value">{{ advert.date_defend or '—' }}</span>
+                    <input type="date" class="edit-value" data-field="date_defend" value="{{ advert.date_defend or '' }}" placeholder="ГГГГ-ММ-ДД">
+                </td>
             </tr>
             <tr>
                 <td class="detail-label">Диссертация:</td>
-                <td>{{ advert.dissertation_name or '—' }}</td>
+                <td>
+                    <span class="view-value">{{ advert.dissertation_name or '—' }}</span>
+                    <input type="text" class="edit-value" data-field="dissertation_name" value="{{ advert.dissertation_name or '' }}" placeholder="Название диссертации">
+                </td>
             </tr>
             <tr>
                 <td class="detail-label">Специальность:</td>
-                <td>{{ advert.specialty_cipher }} — {{ advert.specialty_text or '—' }}</td>
+                <td>
+                    <span class="view-value">{{ advert.specialty_cipher }} — {{ advert.specialty_text or '—' }}</span>
+                    <div class="edit-value" style="display:flex;gap:8px;">
+                        <input type="text" class="spec-cipher" data-field="specialty_cipher" value="{{ advert.specialty_cipher or '' }}" placeholder="Код (напр. 2.2.11)" style="width:120px;">
+                        <input type="text" class="spec-text" data-field="specialty_text" value="{{ advert.specialty_text or '' }}" placeholder="Название специальности">
+                    </div>
+                </td>
             </tr>
-            {% if advert.supervisor_name %}
+            {% if advert.supervisor_name or is_edit_mode %}
             <tr>
                 <td class="detail-label">Научный руководитель:</td>
-                <td>{{ advert.supervisor_name }}</td>
+                <td>
+                    <div class="view-row">
+                        <span class="view-value">{{ advert.supervisor_name or '—' }}</span>
+                        <button class="edit-btn" data-target="supervisor_name">✎</button>
+                    </div>
+                    <div class="edit-row" style="display:none;">
+                        <input type="text" class="edit-value" data-field="supervisor_name" value="{{ advert.supervisor_name or '' }}" placeholder="ФИО руководителя (напр. Иванов И.И.)">
+                        <button class="save-field-btn" data-target="supervisor_name">✓</button>
+                        <button class="cancel-edit-btn">✕</button>
+                    </div>
+                </td>
             </tr>
             {% endif %}
-            {% if advert.supervisor_work %}
+            {% if advert.supervisor_work or is_edit_mode %}
             <tr>
                 <td class="detail-label">Место работы руководителя:</td>
-                <td>{{ advert.supervisor_work }}</td>
+                <td>
+                    <div class="view-row">
+                        <span class="view-value">{{ advert.supervisor_work or '—' }}</span>
+                        <button class="edit-btn" data-target="supervisor_work">✎</button>
+                    </div>
+                    <div class="edit-row" style="display:none;">
+                        <input type="text" class="edit-value" data-field="supervisor_work" value="{{ advert.supervisor_work or '' }}" placeholder="Организация (напр. МГУ, г. Москва)">
+                        <button class="save-field-btn" data-target="supervisor_work">✓</button>
+                        <button class="cancel-edit-btn">✕</button>
+                    </div>
+                </td>
             </tr>
             {% endif %}
-            {% if advert.council_cipher %}
+            {% if advert.council_cipher or is_edit_mode %}
             <tr>
                 <td class="detail-label">Диссертационный совет:</td>
-                <td>{{ advert.council_cipher }} {{ advert.defend_org or '' }}</td>
+                <td>
+                    <div class="view-row">
+                        <span class="view-value">{{ advert.council_cipher }} {{ advert.defend_org or '' }}</span>
+                        <button class="edit-btn" data-target="council">✎</button>
+                    </div>
+                    <div class="edit-row" style="display:none;">
+                        <div style="display:flex;gap:8px;">
+                            <input type="text" class="edit-value" data-field="council_cipher" value="{{ advert.council_cipher or '' }}" placeholder="Код совета" style="width:120px;">
+                            <input type="text" class="edit-value" data-field="defend_org" value="{{ advert.defend_org or '' }}" placeholder="Название организации">
+                        </div>
+                        <button class="save-field-btn" data-target="council">✓</button>
+                        <button class="cancel-edit-btn">✕</button>
+                    </div>
+                </td>
             </tr>
             {% endif %}
-            {% if advert.autoref_url %}
+            {% if advert.autoref_url or is_edit_mode %}
             <tr>
                 <td class="detail-label">Автореферат:</td>
-                <td><a href="{{ advert.autoref_url }}" target="_blank" class="link">Ссылка на автореферат ↗</a></td>
+                <td>
+                    <div class="view-row">
+                        {% if advert.autoref_url %}
+                        <a href="{{ advert.autoref_url }}" target="_blank" class="link view-value">Ссылка на автореферат ↗</a>
+                        {% else %}
+                        <span class="view-value">—</span>
+                        {% endif %}
+                        <button class="edit-btn" data-target="autoref">✎</button>
+                    </div>
+                    <div class="edit-row" style="display:none;">
+                        <input type="text" class="edit-value" data-field="autoref_url" value="{{ advert.autoref_url or '' }}" placeholder="https://... ссылка на автореферат">
+                        <button class="save-field-btn" data-target="autoref">✓</button>
+                        <button class="cancel-edit-btn">✕</button>
+                    </div>
+                </td>
             </tr>
             {% endif %}
         </table>
     </div>
 
-    {% if advert.publications %}
     <div class="detail-section">
-        <h2>Публикации</h2>
-        <div class="publications-list">
-            {% for pub in advert.publications %}
-            <div class="pub-item">
+        <div class="publications-header">
+            <h2 style="margin:0;">Публикации</h2>
+            <button class="btn btn-sm btn-primary add-pub-btn" id="addPubBtn" style="display:none;">+ Добавить</button>
+        </div>
+        <div class="publications-list" id="publicationsList">
+            {% for pub in (advert.publications or []) %}
+            <div class="pub-item" data-pub-id="{{ pub.id }}">
                 <span class="pub-number">{{ pub.pub_number }}.</span>
-                <span class="pub-title">{{ pub.title or 'Без названия' }}</span>
-                {% if pub.journal %}
-                <span class="pub-journal">{{ pub.journal }}</span>
-                {% endif %}
-                {% if pub.year %}
-                <span class="pub-year">{{ pub.year }}</span>
-                {% endif %}
-                {% if pub.pages %}
-                <span class="pub-pages">{{ pub.pages }}</span>
-                {% endif %}
+                <div class="pub-fields">
+                    <input type="text" class="pub-authors" value="{{ pub.authors or '' }}" placeholder="Авторы" style="display:none;">
+                    <span class="pub-authors-view">{{ pub.authors or 'Без авторов' }}</span>
+                    <input type="text" class="pub-title" value="{{ pub.title or '' }}" placeholder="Название публикации" style="display:none;">
+                    <span class="pub-title-view">{{ pub.title or 'Без названия' }}</span>
+                    <input type="text" class="pub-journal" value="{{ pub.journal or '' }}" placeholder="Журнал" style="display:none;">
+                    <span class="pub-journal-view">{{ pub.journal or '' }}</span>
+                    <input type="number" class="pub-year" value="{{ pub.year or '' }}" placeholder="Год" min="1900" max="2099" style="display:none;">
+                    <span class="pub-year-view">{{ pub.year or '' }}</span>
+                    <input type="text" class="pub-pages" value="{{ pub.pages or '' }}" placeholder="Страницы (напр. 123-130)" style="display:none;">
+                    <span class="pub-pages-view">{{ pub.pages or '' }}</span>
+                </div>
+                <div class="pub-actions">
+                    <button class="edit-btn btn btn-sm btn-secondary pub-edit-btn" data-pub-id="{{ pub.id }}">✎</button>
+                    <button class="delete-btn btn btn-sm btn-danger pub-delete-btn" data-pub-id="{{ pub.id }}" style="display:none;">✕</button>
+                    <button class="save-pub-btn btn btn-sm btn-primary" data-pub-id="{{ pub.id }}" style="display:none;">✓</button>
+                    <button class="cancel-pub-btn btn btn-sm btn-secondary" style="display:none;">✕</button>
+                </div>
             </div>
             {% endfor %}
         </div>
-    </div>
-    {% else %}
-    <div class="detail-section">
-        <h2>Публикации</h2>
+        {% if not (advert.publications or []) %}
         <p class="empty-text">Публикации не найдены</p>
+        {% endif %}
     </div>
-    {% endif %}
+
+    <div class="detail-section" style="display:none;" id="saveSection">
+        <div class="save-actions">
+            <button class="btn btn-primary" id="saveAllBtn">💾 Сохранить все изменения</button>
+            <button class="btn btn-secondary" id="cancelAllBtn">Отменить</button>
+        </div>
+    </div>
 </div>
+
+<script>
+const advertId = "{{ advert.id }}";
+let isEditing = false;
+let pubCounter = {{ (advert.publications or [])|length }};
+let hasChanges = false;
+
+const fields = ['date_defend', 'dissertation_name', 'specialty_cipher', 'specialty_text', 'supervisor_name', 'supervisor_work', 'council_cipher', 'defend_org', 'autoref_url'];
+
+// Toggle global edit mode / add publication
+document.getElementById('addPubBtn').addEventListener('click', function() {
+    if (!isEditing) {
+        toggleEdit(true);
+    } else {
+        addPublication();
+    }
+});
+document.getElementById('cancelAllBtn').addEventListener('click', cancelAll);
+document.getElementById('saveAllBtn').addEventListener('click', saveAll);
+
+function toggleEdit(enterEdit) {
+    isEditing = enterEdit !== false;
+    const editRows = document.querySelectorAll('.edit-row');
+    const viewRows = document.querySelectorAll('.view-row');
+    const addPubBtn = document.getElementById('addPubBtn');
+    const saveSection = document.getElementById('saveSection');
+    const pubEditBtns = document.querySelectorAll('.pub-edit-btn');
+    const pubDeleteBtns = document.querySelectorAll('.pub-delete-btn');
+    const pubSaveBtns = document.querySelectorAll('.save-pub-btn');
+    const pubCancelBtns = document.querySelectorAll('.cancel-pub-btn');
+    const pubInputs = document.querySelectorAll('.pub-item .pub-authors, .pub-item .pub-title, .pub-item .pub-journal, .pub-item .pub-year, .pub-item .pub-pages');
+    const pubViews = document.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view');
+
+    if (isEditing) {
+        editRows.forEach(r => r.style.display = 'flex');
+        viewRows.forEach(r => r.style.display = 'none');
+        addPubBtn.textContent = '+ Добавить публикацию';
+        addPubBtn.className = 'btn btn-sm btn-primary';
+        saveSection.style.display = 'block';
+        pubEditBtns.forEach(b => b.style.display = 'none');
+        pubDeleteBtns.forEach(b => b.style.display = 'inline');
+        pubSaveBtns.forEach(b => b.style.display = 'inline');
+        pubCancelBtns.forEach(b => b.style.display = 'inline');
+        pubInputs.forEach(i => i.style.display = 'block');
+        pubViews.forEach(v => v.style.display = 'none');
+    } else {
+        editRows.forEach(r => r.style.display = 'none');
+        viewRows.forEach(r => r.style.display = 'flex');
+        addPubBtn.textContent = '+ Добавить';
+        addPubBtn.className = 'btn btn-sm btn-primary';
+        saveSection.style.display = 'none';
+        pubEditBtns.forEach(b => b.style.display = 'inline');
+        pubDeleteBtns.forEach(b => b.style.display = 'none');
+        pubSaveBtns.forEach(b => b.style.display = 'none');
+        pubCancelBtns.forEach(b => b.style.display = 'none');
+        pubInputs.forEach(i => i.style.display = 'none');
+        pubViews.forEach(v => v.style.display = 'inline');
+    }
+}
+
+function toggleRowEdit(el) {
+    const item = el.closest('.pub-item');
+    const editBtn = item.querySelector('.pub-edit-btn');
+    const deleteBtn = item.querySelector('.pub-delete-btn');
+    const saveBtn = item.querySelector('.save-pub-btn');
+    const cancelBtn = item.querySelector('.cancel-pub-btn');
+    const inputs = item.querySelectorAll('.pub-authors, .pub-title, .pub-journal, .pub-year, .pub-pages');
+    const views = item.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view');
+
+    editBtn.style.display = 'none';
+    deleteBtn.style.display = 'inline';
+    saveBtn.style.display = 'inline';
+    cancelBtn.style.display = 'inline';
+    inputs.forEach(i => i.style.display = 'block');
+    views.forEach(v => v.style.display = 'none');
+}
+
+function toggleRowCancel(el) {
+    const item = el.closest('.pub-item');
+    const editBtn = item.querySelector('.pub-edit-btn');
+    const deleteBtn = item.querySelector('.pub-delete-btn');
+    const saveBtn = item.querySelector('.save-pub-btn');
+    const cancelBtn = item.querySelector('.cancel-pub-btn');
+    const inputs = item.querySelectorAll('.pub-authors, .pub-title, .pub-journal, .pub-year, .pub-pages');
+    const views = item.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view');
+
+    editBtn.style.display = 'inline';
+    deleteBtn.style.display = 'none';
+    saveBtn.style.display = 'none';
+    cancelBtn.style.display = 'none';
+    inputs.forEach(i => i.style.display = 'none');
+    views.forEach(v => v.style.display = 'inline');
+}
+
+function deletePublication(el) {
+    const item = el.closest('.pub-item');
+    if (confirm('Удалить эту публикацию?')) {
+        item.remove();
+    }
+}
+
+function addPublication() {
+    pubCounter++;
+    const list = document.getElementById('publicationsList');
+    const emptyText = list.querySelector('.empty-text');
+    if (emptyText) emptyText.remove();
+
+    const item = document.createElement('div');
+    item.className = 'pub-item';
+    item.setAttribute('data-pub-id', '');
+    item.innerHTML = `
+        <span class="pub-number">${pubCounter}.</span>
+        <div class="pub-fields">
+            <input type="text" class="pub-authors" value="" placeholder="Авторы">
+            <input type="text" class="pub-title" value="" placeholder="Название публикации">
+            <input type="text" class="pub-journal" value="" placeholder="Журнал">
+            <input type="number" class="pub-year" value="" placeholder="Год" min="1900" max="2099">
+            <input type="text" class="pub-pages" value="" placeholder="Страницы (напр. 123-130)">
+        </div>
+        <div class="pub-actions">
+            <button class="edit-btn btn btn-sm btn-secondary pub-edit-btn" style="display:none;">✎</button>
+            <button class="delete-btn btn btn-sm btn-danger pub-delete-btn" style="display:inline;">✕</button>
+            <button class="save-pub-btn btn btn-sm btn-primary" style="display:inline;">✓</button>
+            <button class="cancel-pub-btn btn btn-sm btn-secondary" style="display:inline;">✕</button>
+        </div>
+    `;
+    list.appendChild(item);
+
+    item.querySelector('.pub-delete-btn').addEventListener('click', deletePublication);
+    item.querySelector('.save-pub-btn').addEventListener('click', saveSinglePub);
+    item.querySelector('.cancel-pub-btn').addEventListener('click', toggleRowCancel);
+}
+
+function saveSinglePub(el) {
+    const item = el.closest('.pub-item');
+    const editBtn = item.querySelector('.pub-edit-btn');
+    const deleteBtn = item.querySelector('.pub-delete-btn');
+    const saveBtn = item.querySelector('.save-pub-btn');
+    const cancelBtn = item.querySelector('.cancel-pub-btn');
+    const inputs = item.querySelectorAll('.pub-authors, .pub-title, .pub-journal, .pub-year, .pub-pages');
+    const views = item.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view');
+
+    editBtn.style.display = 'none';
+    deleteBtn.style.display = 'inline';
+    saveBtn.style.display = 'none';
+    cancelBtn.style.display = 'none';
+    inputs.forEach(i => i.style.display = 'none');
+    views.forEach(v => v.style.display = 'inline');
+}
+
+function saveAll() {
+    const data = {};
+
+    // Collect advert fields
+    document.querySelectorAll('.edit-value').forEach(input => {
+        const field = input.dataset.field;
+        if (field) data[field] = input.value;
+    });
+
+    // Collect publications
+    const pubs = [];
+    document.querySelectorAll('#publicationsList .pub-item').forEach(item => {
+        const pub = {
+            id: item.getAttribute('data-pub-id') || null,
+            pub_number: parseInt(item.querySelector('.pub-number').textContent) || 0,
+            authors: item.querySelector('.pub-authors')?.value || '',
+            title: item.querySelector('.pub-title')?.value || '',
+            journal: item.querySelector('.pub-journal')?.value || '',
+            year: item.querySelector('.pub-year')?.value || '',
+            pages: item.querySelector('.pub-pages')?.value || '',
+        };
+        pubs.push(pub);
+    });
+    data.publications = pubs;
+
+    fetch(`/detail/${advertId}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(result => {
+        if (result.ok) {
+            alert('Данные сохранены успешно!');
+            location.reload();
+        } else {
+            alert('Ошибка при сохранении');
+        }
+    })
+    .catch(err => {
+        alert('Ошибка соединения: ' + err);
+    });
+}
+
+function cancelAll() {
+    location.reload();
+}
+
+document.addEventListener('click', function(e) {
+    // Field-level edit buttons
+    if (e.target.classList.contains('edit-btn') && e.target.dataset.target) {
+        const target = e.target.dataset.target;
+        const row = e.target.closest('tr');
+        row.querySelector('.view-row').style.display = 'none';
+        row.querySelector('.edit-row').style.display = 'flex';
+        row.querySelector('.edit-value')?.focus();
+    }
+
+    // Field-level save buttons
+    if (e.target.classList.contains('save-field-btn')) {
+        const row = e.target.closest('tr');
+        row.querySelector('.view-row').style.display = 'flex';
+        row.querySelector('.edit-row').style.display = 'none';
+    }
+
+    // Publication edit buttons
+    if (e.target.classList.contains('pub-edit-btn')) {
+        toggleRowEdit(e.target);
+    }
+
+    // Publication delete buttons
+    if (e.target.classList.contains('pub-delete-btn')) {
+        deletePublication(e.target);
+    }
+
+    // Publication cancel buttons
+    if (e.target.classList.contains('cancel-pub-btn') && e.target.closest('.pub-item')) {
+        toggleRowCancel(e.target);
+    }
+});
+</script>
 {% endblock %}
