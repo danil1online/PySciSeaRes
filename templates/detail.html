@@ -182,6 +182,24 @@ function deletePublication(el) {
     }
 }
 
+function syncPubViews(item) {
+    const pairs = [
+        ['.pub-authors', '.pub-authors-view'],
+        ['.pub-title', '.pub-title-view'],
+        ['.pub-journal', '.pub-journal-view'],
+        ['.pub-year', '.pub-year-view'],
+        ['.pub-pages', '.pub-pages-view'],
+    ];
+    pairs.forEach(function(pair) {
+        const input = item.querySelector(pair[0]);
+        const view = item.querySelector(pair[1]);
+        if (input && view) {
+            const val = input.value.trim();
+            view.textContent = val || view.textContent;
+        }
+    });
+}
+
 function addPublication() {
     const list = document.getElementById('publicationsList');
     const emptyText = list.querySelector('.empty-text');
@@ -197,15 +215,15 @@ function addPublication() {
         <span class="pub-number">${pubCounter}.</span>
         <div class="pub-fields">
             <input type="text" class="pub-authors" value="" placeholder="Авторы">
-            <span class="pub-authors-view" style="display:none;">Не указано</span>
+            <span class="pub-authors-view">Не указано</span>
             <input type="text" class="pub-title" value="" placeholder="Название публикации">
-            <span class="pub-title-view" style="display:none;">Без названия</span>
+            <span class="pub-title-view">Без названия</span>
             <input type="text" class="pub-journal" value="" placeholder="Журнал">
-            <span class="pub-journal-view" style="display:none;"></span>
+            <span class="pub-journal-view"></span>
             <input type="number" class="pub-year" value="" placeholder="Год" min="1900" max="2099">
-            <span class="pub-year-view" style="display:none;"></span>
+            <span class="pub-year-view"></span>
             <input type="text" class="pub-pages" value="" placeholder="Страницы (напр. 123-130)">
-            <span class="pub-pages-view" style="display:none;"></span>
+            <span class="pub-pages-view"></span>
         </div>
         <div class="pub-actions">
             <button class="edit-btn btn btn-sm btn-secondary pub-edit-btn" style="display:none;">✎</button>
@@ -218,10 +236,11 @@ function addPublication() {
 
     item.querySelector('.pub-delete-btn').addEventListener('click', deletePublication);
     item.querySelector('.save-pub-btn').addEventListener('click', function() {
-        toggleRowSave(item, true);
+        syncPubViews(item);
+        toggleRowSave(item);
     });
     item.querySelector('.cancel-pub-btn').addEventListener('click', function() {
-        toggleRowSave(item, false);
+        toggleRowCancel(item);
     });
     item.querySelector('.pub-edit-btn').addEventListener('click', function() {
         toggleRowEdit(item);
@@ -240,11 +259,12 @@ function toggleRowEdit(item) {
     deleteBtn.style.display = 'inline';
     saveBtn.style.display = 'inline';
     cancelBtn.style.display = 'inline';
-    inputs.forEach(i => i.style.display = 'block');
-    views.forEach(v => v.style.display = 'none');
+    inputs.forEach(function(i) { i.style.display = 'inline'; });
+    views.forEach(function(v) { v.style.display = 'none'; });
 }
 
-function toggleRowSave(item, save) {
+function toggleRowSave(item) {
+    syncPubViews(item);
     const inputs = item.querySelectorAll('.pub-authors, .pub-title, .pub-journal, .pub-year, .pub-pages');
     const views = item.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view');
     const editBtn = item.querySelector('.pub-edit-btn');
@@ -256,44 +276,75 @@ function toggleRowSave(item, save) {
     deleteBtn.style.display = 'inline';
     saveBtn.style.display = 'none';
     cancelBtn.style.display = 'none';
-    inputs.forEach(i => i.style.display = 'none');
-    views.forEach(v => v.style.display = 'inline');
+    inputs.forEach(function(i) { i.style.display = 'none'; });
+    views.forEach(function(v) { v.style.display = 'inline'; });
+}
+
+function toggleRowCancel(item) {
+    const inputs = item.querySelectorAll('.pub-authors, .pub-title, .pub-journal, .pub-year, .pub-pages');
+    const views = item.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view');
+    const editBtn = item.querySelector('.pub-edit-btn');
+    const deleteBtn = item.querySelector('.pub-delete-btn');
+    const saveBtn = item.querySelector('.save-pub-btn');
+    const cancelBtn = item.querySelector('.cancel-pub-btn');
+
+    editBtn.style.display = 'inline';
+    deleteBtn.style.display = 'inline';
+    saveBtn.style.display = 'none';
+    cancelBtn.style.display = 'none';
+    inputs.forEach(function(i) { i.style.display = 'none'; });
+    views.forEach(function(v) { v.style.display = 'inline'; });
+}
+
+function saveField(row) {
+    var input = row.querySelector('.edit-value');
+    var view = row.querySelector('.view-value');
+    if (input && view) {
+        var val = input.value.trim();
+        if (val) view.textContent = val;
+    }
+    row.querySelector('.view-row').style.display = 'flex';
+    row.querySelector('.edit-row').style.display = 'none';
 }
 
 function saveAll() {
-    const data = {};
+    var data = {};
 
-    document.querySelectorAll('.edit-value').forEach(input => {
-        const field = input.dataset.field;
+    // Collect advert fields from edit values
+    document.querySelectorAll('.edit-value').forEach(function(input) {
+        var field = input.dataset.field;
         if (field) data[field] = input.value;
     });
 
-    const pubs = [];
-    document.querySelectorAll('#publicationsList .pub-item').forEach(item => {
-        const titleInput = item.querySelector('.pub-title');
-        const title = titleInput ? titleInput.value.trim() : '';
+    // Collect publications - read from inputs directly
+    var pubs = [];
+    document.querySelectorAll('#publicationsList .pub-item').forEach(function(item) {
+        var title = (item.querySelector('.pub-title') || {}).value.trim();
         if (!title) return;
 
-        const pub = {
+        var yearVal = (item.querySelector('.pub-year') || {}).value;
+        var yearNum = yearVal ? parseInt(yearVal, 10) : '';
+
+        var pub = {
             id: item.getAttribute('data-pub-id') || null,
-            pub_number: parseInt(item.querySelector('.pub-number').textContent) || 0,
-            authors: item.querySelector('.pub-authors')?.value || '',
+            pub_number: parseInt((item.querySelector('.pub-number') || {}).textContent, 10) || 0,
+            authors: (item.querySelector('.pub-authors') || {}).value || '',
             title: title,
-            journal: item.querySelector('.pub-journal')?.value || '',
-            year: item.querySelector('.pub-year')?.value || '',
-            pages: item.querySelector('.pub-pages')?.value || '',
+            journal: (item.querySelector('.pub-journal') || {}).value || '',
+            year: yearNum,
+            pages: (item.querySelector('.pub-pages') || {}).value || '',
         };
         pubs.push(pub);
     });
     data.publications = pubs;
 
-    fetch(`/detail/${advertId}/save`, {
+    fetch('/detail/' + advertId + '/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
     })
-    .then(r => r.json())
-    .then(result => {
+    .then(function(r) { return r.json(); })
+    .then(function(result) {
         if (result.ok) {
             alert('Данные сохранены успешно!');
             location.reload();
@@ -301,7 +352,7 @@ function saveAll() {
             alert('Ошибка при сохранении');
         }
     })
-    .catch(err => {
+    .catch(function(err) {
         alert('Ошибка соединения: ' + err);
     });
 }
@@ -309,18 +360,18 @@ function saveAll() {
 document.addEventListener('click', function(e) {
     // Field-level edit buttons (tr supervisor fields, etc.)
     if (e.target.classList.contains('edit-btn') && e.target.dataset.target) {
-        const row = e.target.closest('tr');
+        var row = e.target.closest('tr');
         row.querySelector('.view-row').style.display = 'none';
         row.querySelector('.edit-row').style.display = 'flex';
-        row.querySelector('.edit-value')?.focus();
+        var input = row.querySelector('.edit-value');
+        if (input) input.focus();
         return;
     }
 
     // Field-level save buttons
     if (e.target.classList.contains('save-field-btn')) {
-        const row = e.target.closest('tr');
-        row.querySelector('.view-row').style.display = 'flex';
-        row.querySelector('.edit-row').style.display = 'none';
+        var row2 = e.target.closest('tr');
+        saveField(row2);
         return;
     }
 
