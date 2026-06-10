@@ -15,24 +15,45 @@
             <tr>
                 <td class="detail-label">Дата защиты:</td>
                 <td>
-                    <span class="view-value">{{ advert.date_defend or '—' }}</span>
-                    <input type="date" class="edit-value" data-field="date_defend" value="{{ advert.date_defend or '' }}" placeholder="ГГГГ-ММ-ДД">
+                    <div class="view-row">
+                        <span class="view-value">{{ advert.date_defend or '—' }}</span>
+                        <button class="edit-btn" data-target="date_defend">✎</button>
+                    </div>
+                    <div class="edit-row" style="display:none;">
+                        <input type="date" class="edit-value" data-field="date_defend" value="{{ advert.date_defend or '' }}" placeholder="ГГГГ-ММ-ДД">
+                        <button class="save-field-btn" data-target="date_defend">✓</button>
+                        <button class="cancel-edit-btn">✕</button>
+                    </div>
                 </td>
             </tr>
             <tr>
                 <td class="detail-label">Диссертация:</td>
                 <td>
-                    <span class="view-value">{{ advert.dissertation_name or '—' }}</span>
-                    <input type="text" class="edit-value" data-field="dissertation_name" value="{{ advert.dissertation_name or '' }}" placeholder="Название диссертации">
+                    <div class="view-row">
+                        <span class="view-value">{{ advert.dissertation_name or '—' }}</span>
+                        <button class="edit-btn" data-target="dissertation_name">✎</button>
+                    </div>
+                    <div class="edit-row" style="display:none;">
+                        <input type="text" class="edit-value" data-field="dissertation_name" value="{{ advert.dissertation_name or '' }}" placeholder="Название диссертации">
+                        <button class="save-field-btn" data-target="dissertation_name">✓</button>
+                        <button class="cancel-edit-btn">✕</button>
+                    </div>
                 </td>
             </tr>
             <tr>
                 <td class="detail-label">Специальность:</td>
                 <td>
-                    <span class="view-value">{{ advert.specialty_cipher }} — {{ advert.specialty_text or '—' }}</span>
-                    <div class="edit-value" style="display:flex;gap:8px;">
-                        <input type="text" class="spec-cipher" data-field="specialty_cipher" value="{{ advert.specialty_cipher or '' }}" placeholder="Код (напр. 2.2.11)" style="width:120px;">
-                        <input type="text" class="spec-text" data-field="specialty_text" value="{{ advert.specialty_text or '' }}" placeholder="Название специальности">
+                    <div class="view-row">
+                        <span class="view-value">{{ advert.specialty_cipher }} — {{ advert.specialty_text or '—' }}</span>
+                        <button class="edit-btn" data-target="specialty">✎</button>
+                    </div>
+                    <div class="edit-row" style="display:none;">
+                        <div style="display:flex;gap:8px;">
+                            <input type="text" class="edit-value" data-field="specialty_cipher" value="{{ advert.specialty_cipher or '' }}" placeholder="Код (напр. 2.2.11)" style="width:120px;">
+                            <input type="text" class="edit-value" data-field="specialty_text" value="{{ advert.specialty_text or '' }}" placeholder="Название специальности">
+                        </div>
+                        <button class="save-field-btn" data-target="specialty">✓</button>
+                        <button class="cancel-edit-btn">✕</button>
                     </div>
                 </td>
             </tr>
@@ -113,7 +134,7 @@
     <div class="detail-section">
         <div class="publications-header">
             <h2 style="margin:0;">Публикации</h2>
-            <button class="btn btn-sm btn-primary add-pub-btn" id="addPubBtn" style="display:none;">+ Добавить</button>
+            <button class="btn btn-sm btn-primary" id="addPubBtn">+ Добавить публикацию</button>
         </div>
         <div class="publications-list" id="publicationsList">
             {% for pub in (advert.publications or []) %}
@@ -157,23 +178,21 @@
 const advertId = "{{ advert.id }}";
 let isEditing = false;
 let pubCounter = {{ (advert.publications or [])|length }};
-let hasChanges = false;
 
-const fields = ['date_defend', 'dissertation_name', 'specialty_cipher', 'specialty_text', 'supervisor_name', 'supervisor_work', 'council_cipher', 'defend_org', 'autoref_url'];
-
-// Toggle global edit mode / add publication
+// Add publication button - always visible
 document.getElementById('addPubBtn').addEventListener('click', function() {
     if (!isEditing) {
-        toggleEdit(true);
+        enterEditMode();
     } else {
         addPublication();
     }
 });
+
 document.getElementById('cancelAllBtn').addEventListener('click', cancelAll);
 document.getElementById('saveAllBtn').addEventListener('click', saveAll);
 
-function toggleEdit(enterEdit) {
-    isEditing = enterEdit !== false;
+function enterEditMode() {
+    isEditing = true;
     const editRows = document.querySelectorAll('.edit-row');
     const viewRows = document.querySelectorAll('.view-row');
     const addPubBtn = document.getElementById('addPubBtn');
@@ -185,31 +204,41 @@ function toggleEdit(enterEdit) {
     const pubInputs = document.querySelectorAll('.pub-item .pub-authors, .pub-item .pub-title, .pub-item .pub-journal, .pub-item .pub-year, .pub-item .pub-pages');
     const pubViews = document.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view');
 
-    if (isEditing) {
-        editRows.forEach(r => r.style.display = 'flex');
-        viewRows.forEach(r => r.style.display = 'none');
-        addPubBtn.textContent = '+ Добавить публикацию';
-        addPubBtn.className = 'btn btn-sm btn-primary';
-        saveSection.style.display = 'block';
-        pubEditBtns.forEach(b => b.style.display = 'none');
-        pubDeleteBtns.forEach(b => b.style.display = 'inline');
-        pubSaveBtns.forEach(b => b.style.display = 'inline');
-        pubCancelBtns.forEach(b => b.style.display = 'inline');
-        pubInputs.forEach(i => i.style.display = 'block');
-        pubViews.forEach(v => v.style.display = 'none');
-    } else {
-        editRows.forEach(r => r.style.display = 'none');
-        viewRows.forEach(r => r.style.display = 'flex');
-        addPubBtn.textContent = '+ Добавить';
-        addPubBtn.className = 'btn btn-sm btn-primary';
-        saveSection.style.display = 'none';
-        pubEditBtns.forEach(b => b.style.display = 'inline');
-        pubDeleteBtns.forEach(b => b.style.display = 'none');
-        pubSaveBtns.forEach(b => b.style.display = 'none');
-        pubCancelBtns.forEach(b => b.style.display = 'none');
-        pubInputs.forEach(i => i.style.display = 'none');
-        pubViews.forEach(v => v.style.display = 'inline');
-    }
+    editRows.forEach(r => r.style.display = 'flex');
+    viewRows.forEach(r => r.style.display = 'none');
+    addPubBtn.textContent = '+ Добавить публикацию';
+    saveSection.style.display = 'block';
+    pubEditBtns.forEach(b => b.style.display = 'none');
+    pubDeleteBtns.forEach(b => b.style.display = 'inline');
+    pubSaveBtns.forEach(b => b.style.display = 'inline');
+    pubCancelBtns.forEach(b => b.style.display = 'inline');
+    pubInputs.forEach(i => i.style.display = 'block');
+    pubViews.forEach(v => v.style.display = 'none');
+}
+
+function exitEditMode() {
+    isEditing = false;
+    const editRows = document.querySelectorAll('.edit-row');
+    const viewRows = document.querySelectorAll('.view-row');
+    const addPubBtn = document.getElementById('addPubBtn');
+    const saveSection = document.getElementById('saveSection');
+    const pubEditBtns = document.querySelectorAll('.pub-edit-btn');
+    const pubDeleteBtns = document.querySelectorAll('.pub-delete-btn');
+    const pubSaveBtns = document.querySelectorAll('.save-pub-btn');
+    const pubCancelBtns = document.querySelectorAll('.cancel-pub-btn');
+    const pubInputs = document.querySelectorAll('.pub-item .pub-authors, .pub-item .pub-title, .pub-item .pub-journal, .pub-item .pub-year, .pub-item .pub-pages');
+    const pubViews = document.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view');
+
+    editRows.forEach(r => r.style.display = 'none');
+    viewRows.forEach(r => r.style.display = 'flex');
+    addPubBtn.textContent = '+ Добавить публикацию';
+    saveSection.style.display = 'none';
+    pubEditBtns.forEach(b => b.style.display = 'inline');
+    pubDeleteBtns.forEach(b => b.style.display = 'none');
+    pubSaveBtns.forEach(b => b.style.display = 'none');
+    pubCancelBtns.forEach(b => b.style.display = 'none');
+    pubInputs.forEach(i => i.style.display = 'none');
+    pubViews.forEach(v => v.style.display = 'inline');
 }
 
 function toggleRowEdit(el) {
@@ -281,12 +310,11 @@ function addPublication() {
     list.appendChild(item);
 
     item.querySelector('.pub-delete-btn').addEventListener('click', deletePublication);
-    item.querySelector('.save-pub-btn').addEventListener('click', saveSinglePub);
-    item.querySelector('.cancel-pub-btn').addEventListener('click', toggleRowCancel);
+    item.querySelector('.save-pub-btn').addEventListener('click', function() { saveSinglePub(item); });
+    item.querySelector('.cancel-pub-btn').addEventListener('click', function() { toggleRowCancel(item.querySelector('.cancel-pub-btn')); });
 }
 
-function saveSinglePub(el) {
-    const item = el.closest('.pub-item');
+function saveSinglePub(item) {
     const editBtn = item.querySelector('.pub-edit-btn');
     const deleteBtn = item.querySelector('.pub-delete-btn');
     const saveBtn = item.querySelector('.save-pub-btn');
@@ -305,13 +333,11 @@ function saveSinglePub(el) {
 function saveAll() {
     const data = {};
 
-    // Collect advert fields
     document.querySelectorAll('.edit-value').forEach(input => {
         const field = input.dataset.field;
         if (field) data[field] = input.value;
     });
 
-    // Collect publications
     const pubs = [];
     document.querySelectorAll('#publicationsList .pub-item').forEach(item => {
         const pub = {
@@ -347,37 +373,31 @@ function saveAll() {
 }
 
 function cancelAll() {
-    location.reload();
+    exitEditMode();
 }
 
 document.addEventListener('click', function(e) {
-    // Field-level edit buttons
     if (e.target.classList.contains('edit-btn') && e.target.dataset.target) {
-        const target = e.target.dataset.target;
         const row = e.target.closest('tr');
         row.querySelector('.view-row').style.display = 'none';
         row.querySelector('.edit-row').style.display = 'flex';
         row.querySelector('.edit-value')?.focus();
     }
 
-    // Field-level save buttons
     if (e.target.classList.contains('save-field-btn')) {
         const row = e.target.closest('tr');
         row.querySelector('.view-row').style.display = 'flex';
         row.querySelector('.edit-row').style.display = 'none';
     }
 
-    // Publication edit buttons
     if (e.target.classList.contains('pub-edit-btn')) {
         toggleRowEdit(e.target);
     }
 
-    // Publication delete buttons
     if (e.target.classList.contains('pub-delete-btn')) {
         deletePublication(e.target);
     }
 
-    // Publication cancel buttons
     if (e.target.classList.contains('cancel-pub-btn') && e.target.closest('.pub-item')) {
         toggleRowCancel(e.target);
     }
