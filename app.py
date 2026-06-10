@@ -276,7 +276,14 @@ def save_detail(advert_id):
             )
 
     # Delete publications not in the list (removed)
-    submitted_ids = [int(p["id"]) for p in pubs if p.get("id")]
+    submitted_ids = []
+    for p in pubs:
+        pid = p.get("id")
+        if pid:
+            try:
+                submitted_ids.append(int(pid))
+            except (ValueError, TypeError):
+                pass
     c.execute("SELECT id FROM publications WHERE advert_id = ?", (advert_id,))
     current_ids = [r[0] for r in c.fetchall()]
     to_delete = [pid for pid in current_ids if pid not in submitted_ids]
