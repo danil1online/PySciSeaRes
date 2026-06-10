@@ -245,6 +245,10 @@ def save_detail(advert_id):
 
     # Handle publications
     pubs = data.get("publications", [])
+    import logging
+    logging.warning(f"save_detail: advert_id={advert_id}, pubs={len(pubs)}, pubs_data={pubs}")
+    inserted = 0
+    updated = 0
     for pub in pubs:
         pub_id = pub.get("id")
         pub_number = int(pub.get("pub_number", 0))
@@ -260,6 +264,8 @@ def save_detail(advert_id):
             except (ValueError, TypeError):
                 year_val = None
 
+        logging.warning(f"save_detail: processing pub id={pub_id!r} title={title!r} pub_number={pub_number}")
+
         if pub_id:
             # Update existing
             c.execute("""
@@ -268,12 +274,19 @@ def save_detail(advert_id):
                     journal = COALESCE(?, ''), year = ?, pages = COALESCE(?, '')
                 WHERE id = ?
             """, (pub_number, authors, title, journal, year_val, pages, pub_id))
+            updated += c.rowcount
         elif title:
             # Insert new
+            logging.warning(f"save_detail: INSERTING new pub: advert_id={advert_id}, number={pub_number}, title={title!r}, year={year_val}")
             c.execute(
                 "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (advert_id, pub_number, authors, title, journal, year_val, pages)
             )
+            inserted += c.rowcount
+        else:
+            logging.warning(f"save_detail: SKIPPING pub with empty title")
+
+    logging.warning(f"save_detail: inserted={inserted}, updated={updated}, rowcounts")
 
     # Delete publications not in the list (removed)
     submitted_ids = []
