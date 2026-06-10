@@ -257,10 +257,11 @@ def save_detail(advert_id):
             """, (pub_number, authors, title, journal, year if year else None, pages, pub_id))
         elif title:
             # Insert new
-            c.execute("""
-                INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages)
-                VALUES (?, ?, ?, COALESCE(?, ''), COALESCE(?, ''), ?, COALESCE(?, ''))
-            """, (advert_id, pub_number, authors, title, journal, year if year else None, pages))
+            year_val = int(year) if (year and year.strip()) else None
+            c.execute(
+                "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (advert_id, pub_number, authors, title, journal, year_val, pages)
+            )
 
     # Delete publications not in the list (removed)
     submitted_ids = [int(p["id"]) for p in pubs if p.get("id")]
