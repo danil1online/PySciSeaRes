@@ -45,10 +45,8 @@ def search_adverts(specialties=None, date_from=None, date_to=None, query=None,
 
     sql += " GROUP BY a.id"
 
-    # Count total
-    count_sql = sql.replace("SELECT a.id, ...", "SELECT COUNT(DISTINCT a.id)")
-    # Simpler count
-  count_sql2 = """
+    # Count total (use DISTINCT to avoid duplicate rows from JOIN with publications)
+    count_sql2 = """
         SELECT COUNT(DISTINCT a.id) FROM adverts a
         LEFT JOIN publications p ON p.advert_id = a.id
         WHERE 1=1
