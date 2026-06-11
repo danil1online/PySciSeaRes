@@ -876,9 +876,9 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3, previous_pdf_
 
     for attempt in range(max_retries):
         try:
-            # Ensure URL is properly encoded (decode first, then re-encode)
+            # Ensure the resolved PDF URL is properly encoded
             from urllib.parse import unquote
-            decoded_url = unquote(autoref_url)
+            decoded_url = unquote(resolved_pdf_url)
             encoded_url = _url_encode_path(decoded_url)
             resp = requests.get(
                 encoded_url, stream=True, timeout=120,
@@ -889,7 +889,7 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3, previous_pdf_
 
             content_length = int(resp.headers.get("Content-Length", 0))
             if content_length > 0 and content_length < MIN_SIZE:
-                return None, f"Малый размер ({content_length // 1024} КБ)", autoref_url
+                return None, f"Малый размер ({content_length // 1024} КБ)", resolved_pdf_url
 
             with open(save_path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=8192):
@@ -898,23 +898,23 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3, previous_pdf_
             actual_size = os.path.getsize(save_path)
             if actual_size < 200 * 1024:
                 os.remove(save_path)
-                return None, f"Слишком маленький файл ({actual_size // 1024} КБ)", autoref_url
+                return None, f"Слишком маленький файл ({actual_size // 1024} КБ)", resolved_pdf_url
 
-            return save_path, "OK", autoref_url
+            return save_path, "OK", resolved_pdf_url
 
         except requests.exceptions.HTTPError as e:
             status_code = e.response.status_code if e.response else "?"
             if attempt < max_retries - 1:
                 print(f"  HTTP {status_code}, повтор...")
             else:
-                return None, f"HTTP {status_code}", autoref_url
+                return None, f"HTTP {status_code}", resolved_pdf_url
         except Exception as e:
             if attempt < max_retries - 1:
                 time.sleep(2)
             else:
-                return None, str(e), autoref_url
+                return None, str(e), resolved_pdf_url
 
-    return None, "Ошибка скачивания", autoref_url
+    return None, "Ошибка скачивания", resolved_pdf_url
 
 
 def extract_specialty_from_pdf(pdf_path):
