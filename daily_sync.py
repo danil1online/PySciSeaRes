@@ -418,9 +418,41 @@ def sanitize_filename(name):
     return name[:100]
 
 
+def _url_encode_path(url):
+    """Кодирует пробелы и опасные ASCII-символы в пути и query части URL.
+
+    Не кодирует неблокальные символы (кириллицу, UTF-8).
+    Кодирование безопасного символа: %20 для пробелов, %2F для слэшей и т.д.
+    """
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(url)
+
+    def _encode_path(path):
+        """Кодирует только ASCII-символы, оставляя UTF-8 как есть."""
+        import re
+        # Кодируем пробелы как %20, и опасные ASCII символы
+        return re.sub(r'[^\x00-\x7F]+', lambda m: m.group(0), path)
+
+    # Простое кодирование пробелов и опасных ASCII символов
+    def _safe_encode(s):
+        """Кодирует пробелы и опасные символы, но оставляет UTF-8."""
+        import re
+        # Сначала декодируем уже закодированные символы (на случай повторного вызова)
+        from urllib.parse import unquote
+        s = unquote(s)
+        # Кодируем пробелы
+        s = s.replace(' ', '%20')
+        return s
+
+    encoded_path = _safe_encode(parsed.path)
+    encoded_query = _safe_encode(parsed.query)
+    return urlunparse((parsed.scheme, parsed.netloc, encoded_path, parsed.params, encoded_query, parsed.fragment))
+
+
 def _check_pdf_page_count(url):
     """Проверяет количество страниц в PDF-файле. Возвращает число или None при ошибке."""
     try:
+        url = _url_encode_path(url)
         resp = requests.get(
             url,
             headers={"User-Agent": HEADERS.get("User-Agent", "Mozilla/5.0")},
@@ -469,9 +501,9 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
         if not href:
             return ""
         if href.startswith("http"):
-            return href
+            return _url_encode_path(href)
         from urllib.parse import urljoin
-        return urljoin(base_url, href)
+        return _url_encode_path(urljoin(base_url, href))
 
     def is_pdf(href):
         """Проверяет, ведёт ли ссылка на PDF."""
@@ -844,8 +876,12 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3, previous_pdf_
 
     for attempt in range(max_retries):
         try:
+            # Ensure URL is properly encoded (decode first, then re-encode)
+            from urllib.parse import unquote
+            decoded_url = unquote(autoref_url)
+            encoded_url = _url_encode_path(decoded_url)
             resp = requests.get(
-                autoref_url, stream=True, timeout=120,
+                encoded_url, stream=True, timeout=120,
                 headers={"User-Agent": HEADERS["User-Agent"] if "User-Agent" in HEADERS else "Mozilla/5.0"},
                 verify=False,
             )
