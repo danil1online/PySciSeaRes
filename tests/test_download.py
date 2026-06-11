@@ -58,23 +58,53 @@ class TestDownloadAutoref:
                 assert result[1] != "OK"
 
     def test_existing_file_cached(self, tmp_path):
-        """Существующий файл - кэш."""
+        """Существующий файл с совпадающим URL - кэш."""
         import daily_sync as ds
-        
-        # Filename format: FIO_date.pdf where date uses underscores
+
         test_file = tmp_path / "Test_2026_06_04.pdf"
         test_file.write_bytes(b"%PDF-1.4" + b"x" * (310 * 1024))
-        
+
         original_dir = ds.AUTOREFS_DIR
         ds.AUTOREFS_DIR = str(tmp_path)
-        
+
         try:
-            result = download_autoref('https://example.com/file.pdf', "Test", "2026-06-04")
-            # Should return cached file
+            # Passing matching URL in previous_pdf_url -> should use cache
+            result = download_autoref(
+                'https://example.com/file.pdf', "Test", "2026-06-04",
+                previous_pdf_url='https://example.com/file.pdf'
+            )
             assert result[1] == "Скачан ранее"
             assert result[0] == str(test_file)
         finally:
             ds.AUTOREFS_DIR = original_dir
+
+    def test_no_cache_without_url(self, tmp_path):
+        """Без previous_pdf_url файл не используется - скачивается заново."""
+        import daily_sync as ds
+
+        # Pre-create a file (simulates old incorrect download)
+        test_file = tmp_path / "Test_2026_06_04.pdf"
+        test_file.write_bytes(b"%PDF-1.4" + b"x" * (310 * 1024))
+
+        original_dir = ds.AUTOREFS_DIR
+        ds.AUTOREFS_DIR = str(tmp_path)
+
+        # Mock that simulates a different/newer PDF
+        mock_response = MagicMock()
+        mock_response.headers = {"Content-Length": str(315 * 1024)}
+        mock_response.iter_content.return_value = [b"%PDF-1.4" + b"y" * (315 * 1024)]
+
+        with patch('requests.get', return_value=mock_response):
+            try:
+                # No previous_pdf_url -> should NOT use cache, should download
+                result = download_autoref('https://example.com/file.pdf', "Test", "2026-06-04")
+                assert result[0] == str(test_file)
+                assert result[1] == "OK"
+                # File content should be different (y, not x)
+                content = test_file.read_bytes()
+                assert content[10] == ord('y'), "Файл должен быть перезаписан"
+            finally:
+                ds.AUTOREFS_DIR = original_dir
 
     def test_http_error(self, tmp_path):
         """HTTP ошибка."""

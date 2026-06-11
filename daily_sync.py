@@ -827,16 +827,18 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3, previous_pdf_
 
     os.makedirs(AUTOREFS_DIR, exist_ok=True)
 
-    if os.path.exists(save_path):
-        if previous_pdf_url is None or previous_pdf_url == resolved_pdf_url:
-            return save_path, "Скачан ранее", resolved_pdf_url
+    if os.path.exists(save_path) and previous_pdf_url is not None and previous_pdf_url == resolved_pdf_url:
+        return save_path, "Скачан ранее", resolved_pdf_url
 
-    # Remove old cached file if URL changed (to avoid stale file)
-    if os.path.exists(save_path) and previous_pdf_url is not None:
+    # Remove old cached file if it exists and URL is unknown or changed
+    if os.path.exists(save_path):
         try:
             old_size = os.path.getsize(save_path)
             os.remove(save_path)
-            print(f"\n    Старый файл удалён ({old_size // 1024} КБ)")
+            if previous_pdf_url is None:
+                print(f"\n    URL старого файла неизвестен, файл удалён ({old_size // 1024} КБ)")
+            else:
+                print(f"\n    Старый файл удалён ({old_size // 1024} КБ)")
         except Exception:
             pass
 
