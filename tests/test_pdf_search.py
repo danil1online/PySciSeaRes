@@ -463,3 +463,59 @@ class TestFindAutorefStrategy4Scoring:
             assert result is not None
         finally:
             server.shutdown()
+
+    def test_barinov_scenario_many_pdfs(self, monkeypatch):
+        """Сценарий Баринава: множество PDF (протоколы, отзывы, диссертация),
+        дубликаты URL — должен выбрать автореферат."""
+        def fake_check_pages(url):
+            if 'avtoref' in url:
+                return 36
+            if 'protocol' in url:
+                return 1
+            if 'otziv' in url:
+                return 2
+            if 'dissert' in url:
+                return 200
+            return 20
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+
+        # HTML как на странице Баринава: 2 ссылки на автореферат (дубликат),
+        # протоколы, отзывы, диссертация
+        html = '''<html><body>
+        <h3>Автореферат диссертации</h3>
+        <a href="https://example.com/protocol_2.pdf">протоколу № 2</a>
+        <a href="https://example.com/protocol_8.pdf">протокол № 8</a>
+        <a href="https://example.com/conclusion.pdf">Заключение диссертационного совета</a>
+        <a href="https://example.com/dissertation_full.pdf">Полный текст</a>
+        <a href="https://example.com/dissertation_full.pdf">Диссертация.pdf</a>
+        <a href="https://example.com/otziv_konsultant.pdf">Отзыв научного консультанта</a>
+        <a href="https://example.com/otziv_konsultant.pdf">Отзыв научного консультанта (2).pdf</a>
+        <a href="https://example.com/otziv_opponent_1.pdf">Отзыв 1 официального оппонента</a>
+        <a href="https://example.com/otziv_opponent_2.pdf">Отзыв 2 официального оппонента</a>
+        <a href="https://example.com/otziv_opponent_3.pdf">Отзыв 3 официального оппонента</a>
+        <a href="https://example.com/soglasie_1.pdf">Согласие и сведения 1</a>
+        <a href="https://example.com/avtoref.pdf">Автореферат (Дата размещения: 10.02.2026 г.)</a>
+        <a href="https://example.com/avtoref.pdf">Автореферат (2).pdf</a>
+        <a href="https://example.com/materialy.pdf">Смотреть файл</a>
+        </body></html>'''
+
+        server = MockHTTPServer(19917, {
+            '/page': {'status': 200, 'html': html}
+        })
+        server.start()
+
+        try:
+            result = find_autoref_pdf_from_page(
+                'http://127.0.0.1:19917/page',
+                fio="Баринов С.В.",
+                date_defend="2026-05-14"
+            )
+            assert result is not None, "Должен найти автореферат"
+            assert 'avtoref' in result, f"Должен выбрать автореферат, получен: {result}"
+            assert 'protocol' not in result, f"Не должен выбрать протокол: {result}"
+            assert 'otziv' not in result, f"Не должен выбрать отзыв: {result}"
+            assert 'dissert' not in result, f"Не должен выбрать диссертацию: {result}"
+            assert 'soglasie' not in result, f"Не должен выбрать согласие: {result}"
+            assert 'conclusion' not in result, f"Не должен выбрать заключение: {result}"
+        finally:
+            server.shutdown()

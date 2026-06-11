@@ -473,110 +473,153 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
                     "download", "view", "open", "click"}
 
     links = soup.find_all("a")
-    pdf_candidates = []  # (url, strategy_name, detail_info)
+    all_pdf_candidates = []  # (url, strategy_name, link_text, page_count)
 
     for link in links:
         href = link.get("href", "")
         if not href:
             continue
 
-        text = (link.get_text() or "").strip().lower()
+        text = (link.get_text() or "").strip()
         full_url = resolve_href(href)
 
-        # Skip non-PDF links for later strategies
+        # Skip non-PDF links
         if not is_pdf(href):
             continue
 
-        # Strategy 1: Link text contains "автореферат" keywords
-        if any(kw in text for kw in keywords):
-            valid, detail = _is_valid_pdf(full_url)
-            if valid:
-                print(f"    [1] Найдено по тексту ссылки: {full_url} ({detail})")
-                return full_url
-            else:
-                print(f"    [1] Пропуск ({detail}): {full_url}")
-                continue
+        page_count = _check_pdf_page_count(full_url)
+        if page_count is None or page_count > 50:
+            continue
+
+        link_text_lower = text.lower()
+
+        # Strategy 1: Link text contains "автореферат" keywords (highest priority)
+        if any(kw in link_text_lower for kw in keywords):
+            all_pdf_candidates.append((full_url, "s1_keyword_text", text, page_count))
+            continue
 
         # Strategy 2: "автореферат" in surrounding text (parent/sibling)
         ancestor = get_ancestor_text(link)
         siblings = get_sibling_text(link)
         if any(kw in ancestor or kw in siblings for kw in keywords):
-            valid, detail = _is_valid_pdf(full_url)
-            if valid:
-                print(f"    [2] Найдено по контексту: {full_url} ({detail})")
-                return full_url
-            else:
-                print(f"    [2] Пропуск ({detail}): {full_url}")
+            all_pdf_candidates.append((full_url, "s2_context", text, page_count))
+            continue
+
+        # Strategy 3: Action words + "автореферат" in surrounding text
+        if any(w in link_text_lower for w in action_words):
+            if any(kw in ancestor or kw in siblings for kw in keywords):
+                all_pdf_candidates.append((full_url, "s3_action_context", text, page_count))
                 continue
 
-        # Strategy 3: Action words ("посмотреть файл", "скачать") + PDF
-        if any(w in text for w in action_words):
-            if any(kw in ancestor or kw in siblings for kw in keywords):
-                valid, detail = _is_valid_pdf(full_url)
-                if valid:
-                    print(f"    [3] Найдено по действию + контекст: {full_url} ({detail})")
-                    return full_url
-                else:
-                    print(f"    [3] Пропуск ({detail}): {full_url}")
-                    continue
-            # Collect for fallback
-            pdf_candidates.append((full_url, "action", text))
+        # Collect all other PDFs for fallback
+        all_pdf_candidates.append((full_url, "s4_fallback", text, page_count))
 
-        # Collect all PDF links for fallback
-        pdf_candidates.append((full_url, "other", text))
+    if not all_pdf_candidates:
+        print(f"    PDF-файлы не найдены")
+        return None
 
-    # Strategy 4: Improved fallback — collect all valid PDFs with page counts
-    if pdf_candidates:
-        candidates_with_info = []
-        for candidate_url, strategy, detail_text in pdf_candidates:
-            valid, info = _is_valid_pdf(candidate_url)
-            if valid:
-                candidates_with_info.append((candidate_url, strategy, detail_text, info))
+    # Strategy 4: Score-based selection (unified for all candidates)
+    def autoref_score(item):
+        """Score a candidate — higher is better."""
+        url, strategy, text, page_count = item
+        url_lower = url.lower()
+        text_lower = text.lower()
+        score = 0
 
-        if candidates_with_info:
-            # Sort: prefer files with "автореферат" in filename/URL
-            def autoref_score(item):
-                url, strategy, text, info = item
-                url_lower = url.lower()
-                text_lower = text.lower()
-                score = 0
-                if "автореферат" in url_lower:
-                    score += 100
-                if "автореферат" in text_lower:
-                    score += 50
-                if strategy == "action":
-                    score += 10
-                # Avoid "диссертация", "полный текст", "отзыв", "рецензия", "протокол" in filename
-                avoid = ["диссертация", "полный текст", "отзыв", "рецензия", "протокол", "сопроводительн"]
-                if any(w in url_lower or w in text_lower for w in avoid):
-                    score -= 200
-                return score
+        # Strategy priority: s1 > s2 > s3 > s4
+        strategy_scores = {
+            "s1_keyword_text": 300,
+            "s2_context": 200,
+            "s3_action_context": 150,
+            "s4_fallback": 0,
+        }
+        score += strategy_scores.get(strategy, 0)
 
-            candidates_with_info.sort(key=autoref_score, reverse=True)
-            best_url, best_strategy, best_text, best_info = candidates_with_info[0]
-            best_score = autoref_score(candidates_with_info[0])
+        # Strong positive: "автореферат" in filename
+        if "автореферат" in url_lower:
+            score += 100
+        if "автореферат" in text_lower:
+            score += 50
 
-            # If the best candidate looks obviously wrong (strong negative score), use LLM
-            if best_score < 0:
-                print(f"    [4] Фоллбэк не уверен (наилучший кандидат: {best_info})")
-                print(f"    [5] Анализ через LLM...")
-                pdf_url = _find_autoref_with_llm(
-                    str(soup), str(resp.text), base_url,
-                    candidates_with_info, fio, date_defend
-                )
-                if pdf_url:
-                    pages = _check_pdf_page_count(pdf_url)
-                    info_str = f"{pages} стр." if pages else "неизвестно"
-                    print(f"    LLM выбрал: {pdf_url} ({info_str})")
-                    return pdf_url
+        # Moderate positive: action words in link text (without context)
+        if any(w in text_lower for w in action_words):
+            score += 10
 
-            # Best candidate looks OK — use it
-            strategy_name = {"action": "Фоллбэк (действие)", "other": "Фоллбэк (PDF на странице)"}.get(best_strategy, "Фоллбэк")
-            print(f"    [4] {strategy_name}: {best_url} ({best_info})")
-            return best_url
+        # Strong negative: disqualifying keywords in filename/URL/text
+        avoid = ["диссертация", "полный текст", "отзыв", "рецензия",
+                 "протокол", "сопроводительн", "согласие", "заключение"]
+        if any(w in url_lower or w in text_lower for w in avoid):
+            score -= 200
 
-        # All PDFs too large
-        print(f"    [4] Все PDF на странице слишком большие, пропускаем")
+        return score
+
+    all_pdf_candidates.sort(key=autoref_score, reverse=True)
+
+    # Deduplicate by URL — keep only the highest-scoring entry per unique URL
+    seen_urls = set()
+    unique_candidates = []
+    for item in all_pdf_candidates:
+        url = item[0]
+        if url not in seen_urls:
+            seen_urls.add(url)
+            unique_candidates.append(item)
+    all_pdf_candidates = unique_candidates
+
+    best_url, best_strategy, best_text, best_pages = all_pdf_candidates[0]
+    best_score = autoref_score(all_pdf_candidates[0])
+    second_score = autoref_score(all_pdf_candidates[1]) if len(all_pdf_candidates) > 1 else 0
+
+    # Print top 3 candidates for debugging
+    print(f"    Топ-3 кандидата (скор | стратегия | файл):")
+    for i, (url, strat, txt, pc) in enumerate(all_pdf_candidates[:3], 1):
+        sc = autoref_score((url, strat, txt, pc))
+        fname = url.split("/")[-1].split("?")[0][:60]
+        print(f"      [{i}] скор={sc:+d} | {strat} | {fname} ({pc} стр.)")
+
+    # If the best and second-best have very different scores, the best is clearly correct
+    # Only use LLM if scores are close or best is suspiciously low
+    score_gap = best_score - second_score
+
+    if best_score < -50 or score_gap < 30:
+        # Ambiguous or bad — use LLM
+        candidates_for_llm = []
+        for url, strategy, text, pc in all_pdf_candidates[:10]:
+            info = f"{pc} стр."
+            candidates_for_llm.append((url, strategy, text, info))
+
+        print(f"    [5] Неоднозначность (скор={best_score}, разрыв={score_gap}) — анализ через LLM...")
+        pdf_url = _find_autoref_with_llm(
+            str(soup), str(resp.text), base_url,
+            candidates_for_llm, fio, date_defend
+        )
+        if pdf_url:
+            pages = _check_pdf_page_count(pdf_url)
+            info_str = f"{pages} стр." if pages else "неизвестно"
+            print(f"    LLM выбрал: {pdf_url} ({info_str})")
+            return pdf_url
+    elif best_score < -50:
+        print(f"    [4] Наилучший кандидат имеет низкий скор ({best_score}) — LLM...")
+        candidates_for_llm = []
+        for url, strategy, text, pc in all_pdf_candidates[:10]:
+            info = f"{pc} стр."
+            candidates_for_llm.append((url, strategy, text, info))
+
+        pdf_url = _find_autoref_with_llm(
+            str(soup), str(resp.text), base_url,
+            candidates_for_llm, fio, date_defend
+        )
+        if pdf_url:
+            pages = _check_pdf_page_count(pdf_url)
+            info_str = f"{pages} стр." if pages else "неизвестно"
+            print(f"    LLM выбрал: {pdf_url} ({info_str})")
+            return pdf_url
+    else:
+        strategy_name = {"s1_keyword_text": "С1: текст ссылки",
+                         "s2_context": "С2: контекст",
+                         "s3_action_context": "С3: действие+контекст",
+                         "s4_fallback": "С4: фоллбэк"}.get(best_strategy, best_strategy)
+        print(f"    [4] {strategy_name}: {best_url} ({best_pages} стр., скор={best_score})")
+        return best_url
 
     return None
 
