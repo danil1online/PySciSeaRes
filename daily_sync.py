@@ -104,7 +104,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
             specialty_cipher, specialty_text,
             council_cipher, defend_org, org_address, org_phone,
             autoref_url, autoref_path, autoref_pdf_url, downloaded
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
             detail.get("id"),
             detail.get("old_id"),
             detail.get("date_defend"),
@@ -311,6 +311,12 @@ def init_db():
         downloaded INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
+
+    # Migration: add autoref_pdf_url column if it doesn't exist (for existing DBs)
+    try:
+        c.execute("ALTER TABLE adverts ADD COLUMN autoref_pdf_url TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
 
     c.execute("""CREATE TABLE IF NOT EXISTS publications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
