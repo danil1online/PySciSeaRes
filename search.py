@@ -48,12 +48,10 @@ def search_adverts(specialties=None, date_from=None, date_to=None, query=None,
     # Count total
     count_sql = sql.replace("SELECT a.id, ...", "SELECT COUNT(DISTINCT a.id)")
     # Simpler count
-    count_sql2 = """
-        SELECT COUNT(*) FROM (
-            SELECT a.id
-            FROM adverts a
-            LEFT JOIN publications p ON p.advert_id = a.id
-            WHERE 1=1
+  count_sql2 = """
+        SELECT COUNT(DISTINCT a.id) FROM adverts a
+        LEFT JOIN publications p ON p.advert_id = a.id
+        WHERE 1=1
     """
     count_params = []
 
@@ -76,8 +74,6 @@ def search_adverts(specialties=None, date_from=None, date_to=None, query=None,
         count_sql2 += " AND (a.fio LIKE ? OR a.dissertation_name LIKE ? OR a.specialty_text LIKE ?)"
         like_query = f"%{query}%"
         count_params.extend([like_query, like_query, like_query])
-
-    count_sql2 += ")"
 
     sql += " ORDER BY a.date_defend DESC"
     offset = (page - 1) * per_page
