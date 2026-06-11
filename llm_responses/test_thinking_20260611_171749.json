@@ -1,0 +1,273 @@
+{
+  "date": "2026-06-11 17:17:49",
+  "pdf": "Avtoreferat(316).pdf",
+  "total_pages": 24,
+  "expected_count": 9,
+  "llm_model": "qwen3.5-4b",
+  "num_runs": 10,
+  "system_prompts": {
+    "without_thinking": "Ты — помощник по извлечению библиографических данных из авторефератов диссертаций. Твоя задача — найти и извлечь ВСЕ публикации автора в разделе 'ОСНОВНЫЕ ПУБЛИКАЦИИ ПО ТЕМЕ ИССЛЕДОВАНИЯ' или аналогичном. Для каждой публикации найди: порядок (номер), авторы (ФИО), название статьи, название журнала/издания, год, страницы. Верни результат в формате JSON массива. Если публикаций не найдено — верни пустой массив []",
+    "with_thinking": "Ты — помощник по извлечению библиографических данных из авторефератов диссертаций. Твоя задача — найти и извлечь ВСЕ публикации автора в разделе 'ОСНОВНЫЕ ПУБЛИКАЦИИ ПО ТЕМЕ ИССЛЕДОВАНИЯ' или аналогичном. Для каждой публикации найди: порядок (номер), авторы (ФИО), название статьи, название журнала/издания, год, страницы. Верни результат в формате JSON массива. Если публикаций не найдено — верни пустой массив []\n\nВАЖНО: Сначала внимательно проанализируй весь предоставленный текст. 1. Определи, где находится раздел публикаций. 2. Прочитай каждую строку в этом разделе. 3. Определи, является ли строка публикацией (должны быть авторы, название, источник, год). 4. Извлеки все поля для каждой публикации. 5. Проверь, не дублируются ли публикации. После анализа верни результат в формате JSON массива."
+  },
+  "statistics": {
+    "without_thinking": {
+      "count": {
+        "mean": 9.0,
+        "std": 0.0,
+        "min": 9,
+        "max": 9
+      },
+      "valid_ratio": {
+        "mean": 100.0,
+        "std": 0.0,
+        "min": 100.0,
+        "max": 100.0
+      },
+      "year_coverage": {
+        "mean": 100.0,
+        "std": 0.0,
+        "min": 100.0,
+        "max": 100.0
+      },
+      "journal_coverage": {
+        "mean": 100.0,
+        "std": 0.0,
+        "min": 100.0,
+        "max": 100.0
+      },
+      "quality_score": {
+        "mean": 100.0,
+        "std": 0.0,
+        "min": 100,
+        "max": 100
+      }
+    },
+    "with_thinking": {
+      "count": {
+        "mean": 9.0,
+        "std": 0.0,
+        "min": 9,
+        "max": 9
+      },
+      "valid_ratio": {
+        "mean": 100.0,
+        "std": 0.0,
+        "min": 100.0,
+        "max": 100.0
+      },
+      "year_coverage": {
+        "mean": 100.0,
+        "std": 0.0,
+        "min": 100.0,
+        "max": 100.0
+      },
+      "journal_coverage": {
+        "mean": 100.0,
+        "std": 0.0,
+        "min": 100.0,
+        "max": 100.0
+      },
+      "quality_score": {
+        "mean": 100.0,
+        "std": 0.0,
+        "min": 100,
+        "max": 100
+      }
+    }
+  },
+  "per_run": {
+    "without_thinking": [
+      {
+        "run": 1,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 29.748583793640137
+      },
+      {
+        "run": 2,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.73807382583618
+      },
+      {
+        "run": 3,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.792147636413574
+      },
+      {
+        "run": 4,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.73991322517395
+      },
+      {
+        "run": 5,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.783220767974854
+      },
+      {
+        "run": 6,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.740968227386475
+      },
+      {
+        "run": 7,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.807318925857544
+      },
+      {
+        "run": 8,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.86479663848877
+      },
+      {
+        "run": 9,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.737929105758667
+      },
+      {
+        "run": 10,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.91073203086853
+      }
+    ],
+    "with_thinking": [
+      {
+        "run": 1,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 29.888136863708496
+      },
+      {
+        "run": 2,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.82664942741394
+      },
+      {
+        "run": 3,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.917184352874756
+      },
+      {
+        "run": 4,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.82631206512451
+      },
+      {
+        "run": 5,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.99518847465515
+      },
+      {
+        "run": 6,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 27.20490050315857
+      },
+      {
+        "run": 7,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.80215287208557
+      },
+      {
+        "run": 8,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.79265284538269
+      },
+      {
+        "run": 9,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.897549390792847
+      },
+      {
+        "run": 10,
+        "count": 9,
+        "valid_ratio": 100.0,
+        "year_coverage": 100.0,
+        "journal_coverage": 100.0,
+        "quality_score": 100,
+        "time": 26.850213527679443
+      }
+    ]
+  },
+  "perfect_a": 10,
+  "perfect_b": 10,
+  "winners": {
+    "A": 0,
+    "B": 0,
+    "tie": 10
+  },
+  "total_time_a": 270.9,
+  "total_time_b": 272.0
+}

@@ -381,16 +381,22 @@ def _check_pdf_page_count(url):
         return None
 
 
-def find_autoref_pdf_from_page(url):
+def find_autoref_pdf_from_page(url, fio="", date_defend=""):
     """Многоуровневый поиск PDF-автореферата на HTML-странице.
 
     Стратегии (по приоритету):
     1. Ссылка с текстом "автореферат" + .pdf
     2. Ссылка .pdf, рядом в HTML-тексте есть слово "автореферат"
     3. Ссылка с действием "посмотреть"/"скачать" + .pdf
-    4. Первая найденная ссылка на .pdf
+    4. Умный фоллбэк — сортировка кандидатов с учётом имён файлов
+    5. LLM-анализ страницы, если фоллбэк не уверен
 
     PDF с >50 страницами пропускаются (вероятно, полный текст диссертации).
+
+    Аргументы:
+        url: URL страницы с ссылками на PDF
+        fio: ФИО кандидата наук (для LLM-контекста)
+        date_defend: дата защиты (для LLM-контекста)
     """
     try:
         resp = requests.get(
@@ -519,24 +525,178 @@ def find_autoref_pdf_from_page(url):
         # Collect all PDF links for fallback
         pdf_candidates.append((full_url, "other", text))
 
-    # Strategy 4: Fallback — first valid PDF link found
+    # Strategy 4: Improved fallback — collect all valid PDFs with page counts
     if pdf_candidates:
-        # Prefer links with "автореферат" in the full page text
-        page_text = soup.get_text().lower()
-        # Sort: action links first, then others
-        pdf_candidates.sort(key=lambda x: 0 if x[1] == "action" else 1)
-
-        for candidate_url, strategy, detail in pdf_candidates:
+        candidates_with_info = []
+        for candidate_url, strategy, detail_text in pdf_candidates:
             valid, info = _is_valid_pdf(candidate_url)
             if valid:
-                strategy_name = {"action": "Фоллбэк (действие)", "other": "Фоллбэк (PDF на странице)"}.get(strategy, "Фоллбэк")
-                print(f"    [4] {strategy_name}: {candidate_url} ({info})")
-                return candidate_url
+                candidates_with_info.append((candidate_url, strategy, detail_text, info))
+
+        if candidates_with_info:
+            # Sort: prefer files with "автореферат" in filename/URL
+            def autoref_score(item):
+                url, strategy, text, info = item
+                url_lower = url.lower()
+                text_lower = text.lower()
+                score = 0
+                if "автореферат" in url_lower:
+                    score += 100
+                if "автореферат" in text_lower:
+                    score += 50
+                if strategy == "action":
+                    score += 10
+                # Avoid "диссертация", "полный текст", "отзыв", "рецензия", "протокол" in filename
+                avoid = ["диссертация", "полный текст", "отзыв", "рецензия", "протокол", "сопроводительн"]
+                if any(w in url_lower or w in text_lower for w in avoid):
+                    score -= 200
+                return score
+
+            candidates_with_info.sort(key=autoref_score, reverse=True)
+            best_url, best_strategy, best_text, best_info = candidates_with_info[0]
+            best_score = autoref_score(candidates_with_info[0])
+
+            # If the best candidate looks obviously wrong (strong negative score), use LLM
+            if best_score < 0:
+                print(f"    [4] Фоллбэк не уверен (наилучший кандидат: {best_info})")
+                print(f"    [5] Анализ через LLM...")
+                pdf_url = _find_autoref_with_llm(
+                    str(soup), str(resp.text), base_url,
+                    candidates_with_info, fio, date_defend
+                )
+                if pdf_url:
+                    pages = _check_pdf_page_count(pdf_url)
+                    info_str = f"{pages} стр." if pages else "неизвестно"
+                    print(f"    LLM выбрал: {pdf_url} ({info_str})")
+                    return pdf_url
+
+            # Best candidate looks OK — use it
+            strategy_name = {"action": "Фоллбэк (действие)", "other": "Фоллбэк (PDF на странице)"}.get(best_strategy, "Фоллбэк")
+            print(f"    [4] {strategy_name}: {best_url} ({best_info})")
+            return best_url
 
         # All PDFs too large
         print(f"    [4] Все PDF на странице слишком большие, пропускаем")
 
     return None
+
+
+def _find_autoref_with_llm(html_snippet, full_html, base_url, candidates_with_info, fio, date_defend):
+    """Использует LLM для выбора автореферата из списка PDF-кандидатов.
+
+    Аргументы:
+        html_snippet: обрезанный HTML для передачи в LLM
+        full_html: полный HTML (для извлечения title)
+        base_url: базовый URL страницы
+        candidates_with_info: список (url, strategy, text, info)
+        fio: ФИО кандидата наук
+        date_defend: дата защиты
+
+    Возвращает URL автореферата или None.
+    """
+    from urllib.parse import urljoin
+
+    # Извлекаем заголовок страницы
+    page_title = ""
+    try:
+        title_match = re.search(r'<title[^>]*>([^<]+)</title>', full_html, re.IGNORECASE)
+        if title_match:
+            from bs4 import BeautifulSoup as BS2
+            page_title = BS2(title_match.group(1), "html.parser").get_text().strip()
+    except Exception:
+        page_title = full_html[:200]
+
+    # Формируем список кандидатов для LLM
+    # Максимум 10 кандидатов (LLM ограничена по контексту)
+    max_candidates = min(10, len(candidates_with_info))
+    candidate_items = candidates_with_info[:max_candidates]
+
+    # Собираем информацию о каждом кандидате
+    candidate_descriptions = []
+    for idx, (url, strategy, link_text, info_str) in enumerate(candidate_items, 1):
+        # Урезаем текст ссылки до 200 символов
+        clean_text = link_text[:200].strip() if link_text else ""
+        # Извлекаем имя файла из URL
+        filename = url.split("/")[-1].split("?")[0]
+        filename = filename.replace("%20", " ").replace("%C3", "И").replace("%23", "#")
+        candidate_descriptions.append(
+            f"{idx}. URL: {url}\n   Имя файла: {filename}\n"
+            f"   Текст ссылки: {clean_text}\n"
+            f"   Стратегия: {strategy} | {info_str}"
+        )
+
+    candidates_text = "\n\n".join(candidate_descriptions)
+
+    # Обрезаем HTML-контекст, чтобы уместить в лимит
+    # Берём содержимое body, обрезая до ~8000 символов
+    html_context = ""
+    try:
+        body_match = re.search(r'<body[^>]*>(.*?)</body>', html_snippet, re.DOTALL | re.IGNORECASE)
+        if body_match:
+            body_text = body_match.group(1)
+            # Убираем HTML-теги
+            from bs4 import BeautifulSoup as BS2
+            text_only = BS2(body_text, "html.parser").get_text(separator="\n", strip=True)
+            html_context = text_only[:8000]
+    except Exception:
+        html_context = html_snippet[:8000]
+
+    system_prompt = (
+        "Ты — помощник по поиску автореферата диссертации на веб-странице. "
+        "Тебе предоставлена HTML-страница с ссылками на PDF-файлы. "
+        "Твоя задача — найти ссылку именно на АВТОРЕФЕРАТ диссертации. "
+        "Автореферат — это краткое изложение диссертации (обычно 15-50 страниц). "
+        "НЕ выбирай: полный текст диссертации, отзывы, рецензии, протоколы, "
+        "сопроводительные документы, методические указания. "
+        "Выбери номер одного кандидата (из списка 1..N), который является авторефератом. "
+        "Ответь ТОЛЬКО числом — номер кандидата. Если не можешь определить — верни слово NONE."
+    )
+
+    fio_desc = f"ФИО кандидата: {fio}" if fio else ""
+    defend_desc = f"Дата защиты: {date_defend}" if date_defend else ""
+
+    user_prompt = (
+        f"Страница: {page_title}\n"
+        f"{fio_desc}\n"
+        f"{defend_desc}\n\n"
+        f"Контекст страницы (текст из body):\n{html_context}\n\n"
+        f"Список PDF-кандидатов:\n{candidates_text}\n\n"
+        f"На какой номер кандидата ведёт ссылка на автореферат?"
+    )
+
+    # Вызываем LLM
+    try:
+        resp = requests.post(
+            LLM_API_URL,
+            headers=HEADERS,
+            json={
+                "model": LLM_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "max_tokens": 10,
+                "temperature": 0.0,
+            },
+            timeout=LLM_TIMEOUT,
+        )
+        resp.raise_for_status()
+        answer = resp.json()["choices"][0]["message"]["content"].strip()
+
+        # Парсим ответ: ищем число от 1 до N
+        import re as re2
+        num_match = re2.search(r'\b([1-9]|10)\b', answer)
+        if num_match:
+            chosen_idx = int(num_match.group(1)) - 1
+            if 0 <= chosen_idx < len(candidate_items):
+                return candidate_items[chosen_idx][0]
+
+        # Если ответ "NONE" или не число — пробуем первый кандидат
+        print(f"    LLM ответ: '{answer}', фоллбэк на первый кандидат")
+        return candidate_items[0][0]
+    except Exception as e:
+        print(f"    LLM ошибка: {e}, фоллбэк на первый кандидат")
+        return candidate_items[0][0] if candidate_items else None
 
 
 def download_autoref(autoref_url, fio, date_defend, max_retries=3):
@@ -548,7 +708,7 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3):
     if not url_path.endswith('.pdf'):
         # Step 2: Try to find PDF link on the page
         print(f"  Поиск PDF на странице {autoref_url}...", end="")
-        pdf_url = find_autoref_pdf_from_page(autoref_url)
+        pdf_url = find_autoref_pdf_from_page(autoref_url, fio=fio, date_defend=date_defend)
         if not pdf_url:
             return None, "Не PDF (ссылка не найдена)", autoref_url
         print(f" -> {pdf_url}")

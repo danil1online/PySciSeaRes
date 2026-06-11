@@ -4,6 +4,7 @@ import sys
 import os
 import http.server
 import threading
+import pytest
 from unittest.mock import patch, MagicMock
 from urllib.parse import urljoin
 
@@ -345,5 +346,120 @@ class TestFindAutorefPdfFromPageMock:
         try:
             result = find_autoref_pdf_from_page('http://127.0.0.1:19912/page')
             assert result is None, "51 страница должна быть пропущена"
+        finally:
+            server.shutdown()
+
+
+class TestFindAutorefStrategy4Scoring:
+    """Тесты улучшенного фоллбэка (стратегия 4) со скорингом."""
+
+    def test_protocol_falls_to_llm(self, monkeypatch):
+        """Когда все кандидаты имеют отрицательный скор, вызывается LLM."""
+        def fake_check_pages(url):
+            return 5
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+
+        llm_called = []
+
+        def fake_llm(*args, **kwargs):
+            llm_called.append(True)
+            # LLM возвращает URL автореферата
+            return 'https://example.com/avtoref.pdf'
+
+        monkeypatch.setattr('daily_sync._find_autoref_with_llm', fake_llm)
+
+        # Ни одно слово "автореферат" в тексте — стратегии 1-3 не сработают.
+        # "Протокол" и "диссертация" в именах файлов → отрицательный скор → LLM
+        html = '''<html><body>
+        <p>Дополнительные материалы:</p>
+        <a href="https://example.com/протокол_2.pdf">протокол</a>
+        <a href="https://example.com/диссертация.pdf">диссертация</a>
+        </body></html>'''
+
+        server = MockHTTPServer(19913, {
+            '/page': {'status': 200, 'html': html}
+        })
+        server.start()
+
+        try:
+            result = find_autoref_pdf_from_page('http://127.0.0.1:19913/page')
+            assert llm_called, "LLM должен быть вызван когда фоллбэк не уверен"
+            assert result == 'https://example.com/avtoref.pdf'
+        finally:
+            server.shutdown()
+
+    def test_autoref_in_filename_wins(self, monkeypatch):
+        """PDF с 'автореферат' в имени получает более высокий скор."""
+        def fake_check_pages(url):
+            return 20
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+
+        # Без LLM — фоллбэк должен выбрать правильный файл сам
+        def fake_llm(*args, **kwargs):
+            pytest.fail("LLM не должен вызываться — фоллбэк справляется сам")
+
+        monkeypatch.setattr('daily_sync._find_autoref_with_llm', fake_llm)
+
+        html = '''<html><body>
+        <a href="https://example.com/dissertation.pdf">Полный текст</a>
+        <a href="https://example.com/avtoref_baronov.pdf">Скачать файл</a>
+        </body></html>'''
+
+        server = MockHTTPServer(19914, {
+            '/page': {'status': 200, 'html': html}
+        })
+        server.start()
+
+        try:
+            result = find_autoref_pdf_from_page('http://127.0.0.1:19914/page')
+            assert 'avtoref' in result, "Должен выбрать файл с авторефератом в имени"
+        finally:
+            server.shutdown()
+
+    def test_dissertation_scored_down(self, monkeypatch):
+        """Файл с 'диссертация' в имени получает отрицательный скор."""
+        def fake_check_pages(url):
+            return 20
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+
+        # Если диссертация имеет более низкий скор — фоллбэк выбирает другой файл
+        html = '''<html><body>
+        <a href="https://example.com/materialy.pdf">Ссылка 1</a>
+        <a href="https://example.com/текст_диссертации.pdf">Ссылка 2</a>
+        </body></html>'''
+
+        server = MockHTTPServer(19915, {
+            '/page': {'status': 200, 'html': html}
+        })
+        server.start()
+
+        try:
+            result = find_autoref_pdf_from_page('http://127.0.0.1:19915/page')
+            assert 'materialy' in result, "Должен выбрать файл без 'диссертация'"
+        finally:
+            server.shutdown()
+
+    def test_fio_passed_to_function(self, monkeypatch):
+        """ФИО передаётся в функцию — проверяем что не ломает."""
+        def fake_check_pages(url):
+            return 20
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+
+        html = '''<html><body>
+        <a href="https://example.com/avtoref.pdf">Смотреть</a>
+        </body></html>'''
+
+        server = MockHTTPServer(19916, {
+            '/page': {'status': 200, 'html': html}
+        })
+        server.start()
+
+        try:
+            result = find_autoref_pdf_from_page(
+                'http://127.0.0.1:19916/page',
+                fio="Иванов И.И.",
+                date_defend="2026-06-15"
+            )
+            assert result is not None
         finally:
             server.shutdown()
