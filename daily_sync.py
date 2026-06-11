@@ -103,7 +103,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
             id, old_id, date_defend, fio, dissertation_name,
             specialty_cipher, specialty_text,
             council_cipher, defend_org, org_address, org_phone,
-            autoref_url, autoref_path, downloaded
+            autoref_url, autoref_path, autoref_pdf_url, downloaded
         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
             detail.get("id"),
             detail.get("old_id"),
@@ -118,6 +118,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
             detail.get("org_phone"),
             detail.get("autoref_site"),
             None,  # autoref_path — заполняется после скачивания
+            None,  # autoref_pdf_url — resolved PDF URL
             0,
         ))
         conn.commit()
@@ -139,10 +140,11 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     existing_count = c.fetchone()[0]
 
     # Check if autoref PDF is already downloaded
-    c.execute("SELECT autoref_path, downloaded FROM adverts WHERE id = ?", (adv_id,))
+    c.execute("SELECT autoref_path, autoref_pdf_url, downloaded FROM adverts WHERE id = ?", (adv_id,))
     row = c.fetchone()
     autoref_path = row[0] if row else None
-    autoref_downloaded = row[1] if row else 0
+    autoref_pdf_url = row[1] if row else None
+    autoref_downloaded = row[2] if row else 0
 
     # --- Decision logic ---
     need_download = False
@@ -166,7 +168,9 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     # Download autoref if needed
     autoref_url = detail.get("autoref_site")
     if need_download:
-        save_path, status, _ = download_autoref(autoref_url, fio, date_defend)
+        save_path, status, resolved_url = download_autoref(
+            autoref_url, fio, date_defend, previous_pdf_url=autoref_pdf_url
+        )
         if not save_path:
             print(f"    Автореферат: {status}")
             if existing_count < 5:
@@ -176,6 +180,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
         counters["downloaded"] += 1
     elif autoref_path:
         save_path_real = autoref_path
+        resolved_url = autoref_pdf_url
     else:
         print("    Нет ссылки на автореферат")
         return True
@@ -186,9 +191,9 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     else:
         print(f"    Автореферат: найден ({size_kb} КБ)", end="")
 
-    # Update path in DB
-    c.execute("UPDATE adverts SET autoref_path = ?, downloaded = 1 WHERE id = ?",
-              (save_path_real, adv_id))
+    # Update path and resolved URL in DB
+    c.execute("UPDATE adverts SET autoref_path = ?, autoref_pdf_url = ?, downloaded = 1 WHERE id = ?",
+              (save_path_real, resolved_url, adv_id))
 
     # Extract specialty from PDF first page
     pdf_cipher, pdf_name = extract_specialty_from_pdf(save_path_real)
@@ -302,6 +307,7 @@ def init_db():
         org_phone TEXT,
         autoref_url TEXT,
         autoref_path TEXT,
+        autoref_pdf_url TEXT,
         downloaded INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
@@ -782,20 +788,32 @@ def _find_autoref_with_llm(html_snippet, full_html, base_url, candidates_with_in
         return candidate_items[0][0] if candidate_items else None
 
 
-def download_autoref(autoref_url, fio, date_defend, max_retries=3):
+def download_autoref(autoref_url, fio, date_defend, max_retries=3, previous_pdf_url=None):
     if not autoref_url:
         return None, "Нет ссылки", autoref_url
 
     # Step 1: Check if URL is direct PDF link
+    resolved_pdf_url = autoref_url
     url_path = autoref_url.split("?")[0].lower()
     if not url_path.endswith('.pdf'):
         # Step 2: Try to find PDF link on the page
         print(f"  Поиск PDF на странице {autoref_url}...", end="")
-        pdf_url = find_autoref_pdf_from_page(autoref_url, fio=fio, date_defend=date_defend)
-        if not pdf_url:
+        resolved_pdf_url = find_autoref_pdf_from_page(autoref_url, fio=fio, date_defend=date_defend)
+        if not resolved_pdf_url:
             return None, "Не PDF (ссылка не найдена)", autoref_url
-        print(f" -> {pdf_url}")
-        autoref_url = pdf_url
+        print(f" -> {resolved_pdf_url}")
+    else:
+        resolved_pdf_url = autoref_url
+
+    # Check if the resolved URL has changed since last download
+    if previous_pdf_url is not None and resolved_pdf_url != previous_pdf_url:
+        print(f"\n    Ссылка на автореферат изменилась, скачиваем заново")
+        print(f"    Старая: {previous_pdf_url}")
+        print(f"    Новая:  {resolved_pdf_url}")
+        # Force re-download by setting previous_url to None so we skip cache check
+        pass
+    elif previous_pdf_url is not None:
+        resolved_pdf_url = previous_pdf_url
 
     date_str = date_defend.replace("-", "_") if date_defend else "unknown"
     filename = f"{sanitize_filename(fio)}_{date_str}.pdf"
@@ -804,7 +822,17 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3):
     os.makedirs(AUTOREFS_DIR, exist_ok=True)
 
     if os.path.exists(save_path):
-        return save_path, "Скачан ранее", autoref_url
+        if previous_pdf_url is None or previous_pdf_url == resolved_pdf_url:
+            return save_path, "Скачан ранее", resolved_pdf_url
+
+    # Remove old cached file if URL changed (to avoid stale file)
+    if os.path.exists(save_path) and previous_pdf_url is not None:
+        try:
+            old_size = os.path.getsize(save_path)
+            os.remove(save_path)
+            print(f"\n    Старый файл удалён ({old_size // 1024} КБ)")
+        except Exception:
+            pass
 
     for attempt in range(max_retries):
         try:
