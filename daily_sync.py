@@ -134,92 +134,132 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
         counters["errors"] += 1
         return True
 
-    # Check if enough publications already exist for this advert
+    # Check how many publications already exist for this advert
     c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))
     existing_count = c.fetchone()[0]
+
+    # Check if autoref PDF is already downloaded
+    c.execute("SELECT autoref_path, downloaded FROM adverts WHERE id = ?", (adv_id,))
+    row = c.fetchone()
+    autoref_path = row[0] if row else None
+    autoref_downloaded = row[1] if row else 0
+
+    # --- Decision logic ---
+    need_download = False
+    need_reextract = False
+
     if existing_count >= 8:
         print(f"    Пропуск: уже есть {existing_count} публикаций в БД")
         counters["skipped"] += 1
         return True
 
-    # Download autoref
+    if existing_count < 5:
+        # Мало публикаций (0-4) — скачиваем заново, извлекаем и заменяем
+        need_download = True
+        need_reextract = True
+    elif existing_count < 8:
+        # 5-7 публикаций — достаточно, пересчитываем только если PDF не скачан
+        if autoref_downloaded == 0 or autoref_path is None:
+            need_download = True
+            # Не извлекаем публикации заново, только скачиваем PDF
+
+    # Download autoref if needed
     autoref_url = detail.get("autoref_site")
-    if autoref_url:
+    if need_download:
         save_path, status, _ = download_autoref(autoref_url, fio, date_defend)
-        print(f"    Автореферат: {status}", end="")
-        if save_path:
-            size_kb = os.path.getsize(save_path) // 1024
-            print(f" ({size_kb} КБ)", end="")
-            counters["downloaded"] += 1
-            counters["extracted"] += 1
-
-            # Update path in DB and extract specialty name from PDF
-            c.execute("UPDATE adverts SET autoref_path = ?, downloaded = 1 WHERE id = ?",
-                      (save_path, adv_id))
-
-            # Extract specialty from PDF first page (single page, minimal memory)
-            pdf_cipher, pdf_name = extract_specialty_from_pdf(save_path)
-            if pdf_name and not spec_name:
-                # Update specialty_text from PDF if sci_spec.txt has no name
-                c.execute("UPDATE adverts SET specialty_text = ? WHERE id = ?",
-                          (pdf_name, adv_id))
-                print(f"\n    Specialty из PDF: {pdf_cipher} - {pdf_name}", end="")
-            conn.commit()
-
-            # --- Extract ALL data from PDF in ONE pass ---
-            print("\n    Извлечение данных из PDF...", end="")
-            try:
-                # Open PDF once, read text once, close
-                pdf_full_text = _read_pdf_full(save_path)
-
-                # Extract publications (using extracted text)
-                raw_pubs, found_section, llm_time = extract_publications_from_pdf_text(
-                    pdf_full_text
-                )
-                struct_pubs = parse_pub_to_json(raw_pubs)
-                c.execute("DELETE FROM publications WHERE advert_id = ?", (adv_id,))
-                for num, p in enumerate(struct_pubs, 1):
-                    # authors может быть списком — преобразуем в строку
-                    authors = p["authors"]
-                    if isinstance(authors, list):
-                        authors = ", ".join(authors)
-                    c.execute(
-                        "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages) VALUES (?,?,?,?,?,?,?)",
-                        (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"])
-                    )
-                conn.commit()
-                print(f" OK ({len(struct_pubs)} публикаций)", end="")
-                if found_section:
-                    print(f"\n      Раздел: {found_section}")
-                if llm_time:
-                    print(f"\n      LLM время: {llm_time:.1f}с")
-
-                # Extract supervisor (using same text, pages 1-3)
-                print("    Извлечение руководителя...", end="")
-                sup = extract_supervisor_from_pdf_text(pdf_full_text)
-                sup_name = sup.get("supervisor_name")
-                sup_work = sup.get("supervisor_work")
-                c.execute("UPDATE adverts SET supervisor_name = ?, supervisor_work = ? WHERE id = ?",
-                          (sup_name, sup_work, adv_id))
-                conn.commit()
-                if sup_name:
-                    print(f" OK ({sup_name})")
-                else:
-                    print(" (не найден)")
-
-            except Exception as e:
-                print(f" Ошибка извлечения: {e}")
-
-            # Clear PDF text from memory after processing
-            del pdf_full_text
-
-            # Memory check after each advert
-            if counters["processed"] % BATCH_SIZE == 0:
-                check_memory()
-        else:
-            print()
+        if not save_path:
+            print(f"    Автореферат: {status}")
+            if existing_count < 5:
+                counters["errors"] += 1
+            return True
+        save_path_real = save_path
+        counters["downloaded"] += 1
+    elif autoref_path:
+        save_path_real = autoref_path
     else:
         print("    Нет ссылки на автореферат")
+        return True
+
+    size_kb = os.path.getsize(save_path_real) // 1024
+    if need_download:
+        print(f"    Автореферат: скачан ({size_kb} КБ)", end="")
+    else:
+        print(f"    Автореферат: найден ({size_kb} КБ)", end="")
+
+    # Update path in DB
+    c.execute("UPDATE adverts SET autoref_path = ?, downloaded = 1 WHERE id = ?",
+              (save_path_real, adv_id))
+
+    # Extract specialty from PDF first page
+    pdf_cipher, pdf_name = extract_specialty_from_pdf(save_path_real)
+    if pdf_name and not spec_name:
+        c.execute("UPDATE adverts SET specialty_text = ? WHERE id = ?",
+                  (pdf_name, adv_id))
+        print(f"\n    Specialty из PDF: {pdf_cipher} - {pdf_name}", end="")
+    conn.commit()
+
+    # --- Extract publications if needed (only when count < 5) ---
+    if need_reextract:
+        print("\n    Извлечение данных из PDF...", end="")
+        counters["extracted"] += 1
+        try:
+            pdf_full_text = _read_pdf_full(save_path_real)
+
+            # Extract publications (using extracted text)
+            raw_pubs, found_section, llm_time = extract_publications_from_pdf_text(
+                pdf_full_text
+            )
+            struct_pubs = parse_pub_to_json(raw_pubs)
+            c.execute("DELETE FROM publications WHERE advert_id = ?", (adv_id,))
+            for num, p in enumerate(struct_pubs, 1):
+                authors = p["authors"]
+                if isinstance(authors, list):
+                    authors = ", ".join(authors)
+                c.execute(
+                    "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages) VALUES (?,?,?,?,?,?,?)",
+                    (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"])
+                )
+            conn.commit()
+            print(f" OK ({len(struct_pubs)} публикаций)", end="")
+            if found_section:
+                print(f"\n      Раздел: {found_section}")
+            if llm_time:
+                print(f"\n      LLM время: {llm_time:.1f}с")
+
+            # Re-check publication count after extraction
+            c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))
+            new_count = c.fetchone()[0]
+            if new_count >= 5:
+                print(f"\n    Восстановлено: было {existing_count}, стало {new_count} публикаций")
+            else:
+                print(f"\n    Внимание: извлечено всего {new_count} публикаций (было {existing_count})")
+
+            del pdf_full_text
+
+        except Exception as e:
+            print(f" Ошибка извлечения: {e}")
+
+    # Always extract supervisor
+    print("    Извлечение руководителя...", end="")
+    try:
+        pdf_full_text = _read_pdf_full(save_path_real)
+        sup = extract_supervisor_from_pdf_text(pdf_full_text)
+        sup_name = sup.get("supervisor_name")
+        sup_work = sup.get("supervisor_work")
+        c.execute("UPDATE adverts SET supervisor_name = ?, supervisor_work = ? WHERE id = ?",
+                  (sup_name, sup_work, adv_id))
+        conn.commit()
+        if sup_name:
+            print(f" OK ({sup_name})")
+        else:
+            print(" (не найден)")
+        del pdf_full_text
+    except Exception as e:
+        print(f" Ошибка: {e}")
+
+    # Memory check after each advert
+    if counters["processed"] % BATCH_SIZE == 0:
+        check_memory()
 
     return True
 
