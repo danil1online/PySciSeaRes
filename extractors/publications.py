@@ -344,6 +344,8 @@ def extract_publications_from_pdf_text(text):
     Сначала пробует JSON-LLM на последних 5 страницах (~12000 символов).
     Если получено >=8 публикаций — использует их.
     Иначе использует старый метод: regex от начала раздела публикаций + старый LLM.
+    
+    Возвращает: (publications, found_section, time_taken)
     """
     idx, found = _find_publications_section(text)
 
@@ -368,6 +370,7 @@ def extract_publications_from_pdf_text(text):
     # Regex работает от начала раздела публикаций
     pub_text = text[idx:idx + 4000]
     regex_pubs = _extract_publications_regex(pub_text)
+    print(f"  Regex нашёл {len(regex_pubs)} публикаций (раздел: {found})")
 
     llm_pubs = []
     llm_time = None
@@ -377,6 +380,8 @@ def extract_publications_from_pdf_text(text):
         llm_pubs = _parse_llm_publications(response)
         if len(llm_pubs) > 30:
             llm_pubs = llm_pubs[:20]
+        if llm_pubs:
+            print(f"  LLM нашёл {len(llm_pubs)} публикаций")
     except Exception as e:
         print(f"  Ошибка LLM: {e}")
 

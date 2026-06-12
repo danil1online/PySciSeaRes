@@ -830,16 +830,55 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3, previous_pdf_
     if not autoref_url:
         return None, "Нет ссылки", autoref_url
 
-    # Step 1: Check if URL is direct PDF link
+    # Step 1: Check if URL is direct PDF link or potential PDF download
     resolved_pdf_url = autoref_url
     url_path = autoref_url.split("?")[0].lower()
+
     if not url_path.endswith('.pdf'):
-        # Step 2: Try to find PDF link on the page
-        print(f"  Поиск PDF на странице {autoref_url}...", end="")
-        resolved_pdf_url = find_autoref_pdf_from_page(autoref_url, fio=fio, date_defend=date_defend)
-        if not resolved_pdf_url:
-            return None, "Не PDF (ссылка не найдена)", autoref_url
-        print(f" -> {resolved_pdf_url}")
+        # Check if URL looks like a PDF download endpoint (e.g., /avtoreferat.html, /get-file/5144)
+        pdf_indicators = ["avtoreferat", "get-file", "download", "file/", "send/", "attachment"]
+        is_potential_pdf = any(ind in url_path for ind in pdf_indicators)
+
+        if is_potential_pdf:
+            # Try to determine if this is a PDF by checking Content-Type
+            print(f"  Проверка потенциального PDF: {autoref_url}...", end="")
+            try:
+                from urllib.parse import unquote
+                decoded_url = unquote(autoref_url)
+                encoded_url = _url_encode_path(decoded_url)
+                resp = requests.head(
+                    encoded_url,
+                    headers={"User-Agent": HEADERS.get("User-Agent", "Mozilla/5.0")},
+                    timeout=30,
+                    allow_redirects=True,
+                )
+                content_type = resp.headers.get("Content-Type", "").lower()
+                if "application/pdf" in content_type:
+                    resolved_pdf_url = resp.url
+                    print(f" PDF ({content_type})")
+                else:
+                    print(f" не PDF ({content_type})")
+                    # Step 2: Try to find PDF link on the page
+                    print(f"  Поиск PDF на странице {autoref_url}...", end="")
+                    resolved_pdf_url = find_autoref_pdf_from_page(autoref_url, fio=fio, date_defend=date_defend)
+                    if not resolved_pdf_url:
+                        return None, "Не PDF (ссылка не найдена)", autoref_url
+                    print(f" -> {resolved_pdf_url}")
+            except Exception as e:
+                print(f" Ошибка проверки: {e}")
+                # Fallback to finding PDF on page
+                print(f"  Поиск PDF на странице {autoref_url}...", end="")
+                resolved_pdf_url = find_autoref_pdf_from_page(autoref_url, fio=fio, date_defend=date_defend)
+                if not resolved_pdf_url:
+                    return None, "Не PDF (ссылка не найдена)", autoref_url
+                print(f" -> {resolved_pdf_url}")
+        else:
+            # Step 2: Try to find PDF link on the page
+            print(f"  Поиск PDF на странице {autoref_url}...", end="")
+            resolved_pdf_url = find_autoref_pdf_from_page(autoref_url, fio=fio, date_defend=date_defend)
+            if not resolved_pdf_url:
+                return None, "Не PDF (ссылка не найдена)", autoref_url
+            print(f" -> {resolved_pdf_url}")
     else:
         resolved_pdf_url = autoref_url
 

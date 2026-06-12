@@ -109,20 +109,88 @@ class TestDownloadAutoref:
     def test_http_error(self, tmp_path):
         """HTTP ошибка."""
         import daily_sync as ds
-        
+
         mock_response = MagicMock()
         mock_response.status_code = 404
         mock_response.raise_for_status.side_effect = Exception("404")
-        
+
         original_dir = ds.AUTOREFS_DIR
         ds.AUTOREFS_DIR = str(tmp_path)
-        
+
         try:
             with patch('requests.get', side_effect=Exception("404")):
                 result = download_autoref('https://example.com/notfound.pdf', "Test", "2026-06-04")
                 assert result[0] is None
         finally:
             ds.AUTOREFS_DIR = original_dir
+
+    def test_potential_pdf_url_with_content_type(self, tmp_path):
+        """URL вида /avtoreferat.html определяется как PDF по Content-Type."""
+        import daily_sync as ds
+
+        test_file = tmp_path / "Test_2026_06_04.pdf"
+        original_dir = ds.AUTOREFS_DIR
+        ds.AUTOREFS_DIR = str(tmp_path)
+
+        # Mock head request for content-type check
+        mock_head = MagicMock()
+        mock_head.headers = {"Content-Type": "application/pdf"}
+        mock_head.url = "https://example.com/avtoreferat.pdf"
+
+        # Mock download request
+        mock_download = MagicMock()
+        mock_download.headers = {"Content-Length": str(310 * 1024)}
+        mock_download.iter_content.return_value = [b"%PDF-1.4" + b"x" * (310 * 1024)]
+
+        def mock_get(url, **kwargs):
+            if "head" not in str(url) or "get-file" in url:
+                return mock_download
+            return mock_head
+
+        with patch('requests.head', return_value=mock_head):
+            with patch('requests.get', return_value=mock_download):
+                # URL with "avtoreferat" should be checked via HEAD request
+                result = download_autoref(
+                    'https://example.com/avtoreferat.html',
+                    "Test", "2026-06-04"
+                )
+                assert result[0] == str(test_file)
+                assert result[1] == "OK"
+
+        ds.AUTOREFS_DIR = original_dir
+
+    def test_potential_pdf_not_pdf(self, tmp_path):
+        """URL вида /avtoreferat.html не является PDF - должен искать на странице."""
+        import daily_sync as ds
+
+        test_file = tmp_path / "Test_2026_06_04.pdf"
+        original_dir = ds.AUTOREFS_DIR
+        ds.AUTOREFS_DIR = str(tmp_path)
+
+        # Mock head request - not a PDF
+        mock_head = MagicMock()
+        mock_head.headers = {"Content-Type": "text/html"}
+        mock_head.url = "https://example.com/avtoreferat.html"
+
+        # Mock find_autoref_pdf_from_page
+        mock_pdf_url = "https://example.com/actual.pdf"
+
+        # Mock download request
+        mock_download = MagicMock()
+        mock_download.headers = {"Content-Length": str(310 * 1024)}
+        mock_download.iter_content.return_value = [b"%PDF-1.4" + b"x" * (310 * 1024)]
+
+        with patch('requests.head', return_value=mock_head):
+            with patch('daily_sync.find_autoref_pdf_from_page', return_value=mock_pdf_url):
+                with patch('requests.get', return_value=mock_download):
+                    result = download_autoref(
+                        'https://example.com/avtoreferat.html',
+                        "Test", "2026-06-04"
+                    )
+                    assert result[0] == str(test_file)
+                    assert result[1] == "OK"
+
+        ds.AUTOREFS_DIR = original_dir
 
     def test_content_length_check(self, tmp_path):
         """Проверка Content-Length."""
