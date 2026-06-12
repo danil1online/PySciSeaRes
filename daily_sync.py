@@ -506,9 +506,23 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
         return _url_encode_path(urljoin(base_url, href))
 
     def is_pdf(href):
-        """Проверяет, ведёт ли ссылка на PDF."""
+        """Проверяет, ведёт ли ссылка на PDF по расширению."""
         path = resolve_href(href).split("?")[0].lower()
         return path.endswith(".pdf")
+
+    def check_is_pdf_via_head(url):
+        """Проверяет Content-Type через HEAD-запрос (для ссылок без .pdf расширения)."""
+        try:
+            resp = requests.head(
+                url,
+                headers={"User-Agent": HEADERS.get("User-Agent", "Mozilla/5.0")},
+                timeout=15,
+                allow_redirects=True,
+            )
+            content_type = resp.headers.get("Content-Type", "").lower()
+            return "application/pdf" in content_type
+        except Exception:
+            return False
 
     def get_ancestor_text(element, max_depth=5):
         """Собирает текст родительских элементов."""
@@ -566,16 +580,29 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
 
         text = (link.get_text() or "").strip()
         full_url = resolve_href(href)
-
-        # Skip non-PDF links
-        if not is_pdf(href):
-            continue
-
-        page_count = _check_pdf_page_count(full_url)
-        if page_count is None or page_count > 50:
-            continue
-
         link_text_lower = text.lower()
+
+        # Check if this is a PDF
+        has_pdf_ext = is_pdf(href)
+        is_pdf_content = False
+
+        if has_pdf_ext:
+            # Has .pdf extension — check page count
+            page_count = _check_pdf_page_count(full_url)
+            if page_count is None or page_count > 50:
+                continue
+            is_pdf_content = True
+        else:
+            # No .pdf extension — check for "автореферат" in link text
+            # If found, do HEAD request to verify Content-Type
+            if any(kw in link_text_lower for kw in keywords):
+                if check_is_pdf_via_head(full_url):
+                    page_count = _check_pdf_page_count(full_url)
+                    if page_count is not None and page_count <= 50:
+                        is_pdf_content = True
+
+        if not is_pdf_content:
+            continue
 
         # Strategy 1: Link text contains "автореферат" keywords (highest priority)
         if any(kw in link_text_lower for kw in keywords):

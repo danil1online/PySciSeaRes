@@ -519,3 +519,76 @@ class TestFindAutorefStrategy4Scoring:
             assert 'conclusion' not in result, f"Не должен выбрать заключение: {result}"
         finally:
             server.shutdown()
+
+    def test_pdf_without_extension_via_content_type(self, monkeypatch):
+        """Ссылка без .pdf расширения, но с текстом 'автореферат' — определяется по Content-Type."""
+        # HEAD запрос возвращает application/pdf
+        def fake_head(url, **kwargs):
+            mock = MagicMock()
+            mock.headers = {"Content-Type": "application/pdf"}
+            mock.url = url
+            return mock
+
+        def fake_check_pages(url):
+            return 28
+
+        monkeypatch.setattr('daily_sync.requests.head', fake_head)
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+
+        # HTML: ссылка на PDF без .pdf расширения, текст содержит "автореферат"
+        html = '''<html><body>
+        <p>Зайцева Елена Сергеевна</p>
+        <a href="https://example.com/cms_files/p_file/471563267699f417240406">
+        Автореферат диссертации Зайцевой Е.С. на соискание ученой степени
+        </a>
+        </body></html>'''
+
+        server = MockHTTPServer(19920, {
+            '/page': {'status': 200, 'html': html}
+        })
+        server.start()
+
+        try:
+            result = find_autoref_pdf_from_page(
+                'http://127.0.0.1:19920/page',
+                fio="Зайцева Е.С.",
+                date_defend="2026-05-13"
+            )
+            assert result is not None, "Должен найти PDF по Content-Type"
+            assert 'p_file/471563267699f417240406' in result
+        finally:
+            server.shutdown()
+
+    def test_pdf_without_extension_not_pdf(self, monkeypatch):
+        """Ссылка без .pdf расширения с текстом 'автореферат', но Content-Type не PDF."""
+        def fake_head(url, **kwargs):
+            mock = MagicMock()
+            mock.headers = {"Content-Type": "text/html"}
+            mock.url = url
+            return mock
+
+        monkeypatch.setattr('daily_sync.requests.head', fake_head)
+
+        html = '''<html><body>
+        <a href="https://example.com/cms_files/p_file/471563267699f417240406">
+        Автореферат диссертации
+        </a>
+        <a href="https://example.com/avtoref.pdf">Скачать</a>
+        </body></html>'''
+
+        def fake_check_pages(url):
+            return 20
+
+        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+
+        server = MockHTTPServer(19921, {
+            '/page': {'status': 200, 'html': html}
+        })
+        server.start()
+
+        try:
+            result = find_autoref_pdf_from_page('http://127.0.0.1:19921/page')
+            assert result is not None
+            assert 'avtoref.pdf' in result, "Должен найти PDF с расширением, когда Content-Type не PDF"
+        finally:
+            server.shutdown()
