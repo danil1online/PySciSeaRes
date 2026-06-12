@@ -11,6 +11,8 @@ from config import (
     MAX_PUBLICATIONS, LLM_RESPONSES_DIR,
 )
 
+from .cache import get_cached, cache_result
+
 PUB_SYSTEM_PROMPT = (
     "Ты — помощник по извлечению библиографических данных из авторефератов диссертаций. "
     "Твоя задача — извлечь список всех публикаций автора по теме исследования из текста "
@@ -107,6 +109,12 @@ def _send_to_llm(text):
         "Если публикаций нет — напиши: НЕ НАЙДЕНЫ\n\nТекст:\n\n" + text
     )
     start = time.time()
+
+    # Проверяем кэш
+    cached_content, cached_time, from_cache = get_cached(PUB_SYSTEM_PROMPT, text)
+    if from_cache:
+        return cached_content, cached_time
+
     for attempt in range(3):
         try:
             resp = requests.post(
@@ -125,7 +133,12 @@ def _send_to_llm(text):
             )
             elapsed = time.time() - start
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"], elapsed
+            content = resp.json()["choices"][0]["message"]["content"]
+
+            # Сохраняем в кэш
+            cache_result(PUB_SYSTEM_PROMPT, text, content, elapsed)
+
+            return content, elapsed
         except requests.exceptions.Timeout:
             if attempt < 2:
                 time.sleep(2)
@@ -141,9 +154,20 @@ def _send_to_llm_json(text):
 
     JSON-LLM даёт самые точные результаты, поэтому ждём до 5 минут
     (LLM-сервер может "засыпать", cold start занимает 30-90 сек).
+    Использует кэш: если ответ уже есть, возвращает его без запроса.
     """
     user_prompt = PUB_USER_PROMPT_JSON.format(text=text)
     start = time.time()
+
+    # Проверяем кэш
+    cached_content, cached_time, from_cache = get_cached(
+        PUB_SYSTEM_PROMPT_JSON, text
+    )
+    if from_cache:
+        print(f"  JSON-LLM: кэш ({cached_time:.0f}с)")
+        pubs = _parse_llm_json_response(cached_content)
+        return pubs, cached_time, True
+
     json_timeout = 300  # 5 минут — ждём cold start
     try:
         resp = requests.post(
@@ -163,6 +187,10 @@ def _send_to_llm_json(text):
         elapsed = time.time() - start
         resp.raise_for_status()
         content = resp.json()["choices"][0]["message"]["content"]
+
+        # Сохраняем в кэш
+        cache_result(PUB_SYSTEM_PROMPT_JSON, text, content, elapsed)
+
         pubs = _parse_llm_json_response(content)
         return pubs, elapsed, True
     except requests.exceptions.Timeout:

@@ -228,8 +228,63 @@ def parse_sql_response(response):
     return response.strip()
 
 
+# Dangerous SQL patterns that must never be executed
+_SQL_DANGEROUS_PATTERNS = [
+    r'\bDROP\b', r'\bDELETE\b', r'\bUPDATE\b', r'\bALTER\b',
+    r'\bTRUNCATE\b', r'\bCREATE\b', r'\bINSERT\b', r'\bGRANT\b',
+    r'\bREVOKE\b', r'\bATTACH\b', r'\bDETACH\b',
+    r'\bVACUUM\b', r'\bREINDEX\b', r'\bLOAD\b',
+    r'\b\.open\b', r'\b\.schema\b', r'\b\.tables\b',
+    r'\b\.dump\b', r'\b\.mode\b', r'\b\.output\b',
+]
+
+
+def _validate_sql(sql, max_rows=100):
+    """Валидация SQL-запроса: запрет опасных операций, ограничение количества строк."""
+    sql_upper = sql.strip().upper()
+
+    # Разрешённые операторы
+    allowed_patterns = [
+        r'^\s*SELECT\s', r'^\s*\(\s*SELECT\s',
+    ]
+    if not any(re.match(p, sql_upper) for p in allowed_patterns):
+        return False, f"Разрешены только SELECT-запросы, получено: {sql.strip()[:50]}..."
+
+    # Проверка на опасные паттерны
+    for pattern in _SQL_DANGEROUS_PATTERNS:
+        if re.search(pattern, sql_upper):
+            return False, f"Запрещённая операция в SQL: {pattern}"
+
+    # Проверка LIMIT
+    limit_match = re.search(r'\bLIMIT\s+(\d+)', sql_upper)
+    if limit_match:
+        limit_val = int(limit_match.group(1))
+        if limit_val > max_rows:
+            return False, f"LIMIT слишком большой: {limit_val} (макс. {max_rows})"
+    else:
+        # Если нет LIMIT — добавить по умолчанию
+        sql = sql.rstrip()
+        if not sql.upper().endswith(';'):
+            sql += ';'
+        sql = sql.rstrip(';')
+        sql += f" LIMIT {max_rows}"
+
+    return True, sql
+
+
 def execute_sql(sql):
     """Выполнить SQL-запрос и вернуть результаты."""
+    # Валидация перед выполнением
+    valid, result = _validate_sql(sql)
+    if not valid:
+        return {
+            "columns": [],
+            "rows": [],
+            "count": 0,
+            "error": f"Валидация SQL: {result}",
+        }
+    sql = result
+
     conn = get_db()
     c = conn.cursor()
     try:

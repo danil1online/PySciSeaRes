@@ -65,21 +65,12 @@ class TestReadSpecialties:
     def test_read_with_separator(self, tmp_path, sample_spec_lines):
         spec_file = tmp_path / "sci_spec.txt"
         spec_file.write_text("\n".join(sample_spec_lines), encoding="utf-8")
-        
-        from config import SCI_SPEC_FILE
-        import daily_sync
-        
-        original_file = daily_sync.SCI_SPEC_FILE
-        daily_sync.SCI_SPEC_FILE = str(spec_file)
-        
-        try:
-            specs = read_specialties()
-            assert len(specs) == 3
-            assert specs[0][0] == "1.2.1"
-            assert "Искусственный" in specs[0][1]
-            assert specs[2][1] == ""
-        finally:
-            daily_sync.SCI_SPEC_FILE = original_file
+
+        specs = read_specialties(spec_file=str(spec_file))
+        assert len(specs) == 3
+        assert specs[0][0] == "1.2.1"
+        assert "Искусственный" in specs[0][1]
+        assert specs[2][1] == ""
 
     def test_read_missing_file(self, tmp_path):
         missing_file = tmp_path / "missing.txt"
@@ -88,30 +79,16 @@ class TestReadSpecialties:
         import daily_sync
         
         original_file = daily_sync.SCI_SPEC_FILE
-        daily_sync.SCI_SPEC_FILE = str(missing_file)
-        
-        try:
-            specs = read_specialties()
-            assert specs == []
-        finally:
-            daily_sync.SCI_SPEC_FILE = original_file
+        specs = read_specialties(spec_file=str(missing_file))
+        assert specs == []
 
     def test_read_empty_lines(self, tmp_path):
         content = "\n1.2.1 - Test\n\n2.2.2 - Test2\n\n"
         spec_file = tmp_path / "sci_spec.txt"
         spec_file.write_text(content, encoding="utf-8")
-        
-        from config import SCI_SPEC_FILE
-        import daily_sync
-        
-        original_file = daily_sync.SCI_SPEC_FILE
-        daily_sync.SCI_SPEC_FILE = str(spec_file)
-        
-        try:
-            specs = read_specialties()
-            assert len(specs) == 2
-        finally:
-            daily_sync.SCI_SPEC_FILE = original_file
+
+        specs = read_specialties(spec_file=str(spec_file))
+        assert len(specs) == 2
 
 
 class TestMemoryControl:

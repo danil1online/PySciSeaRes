@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from daily_sync import download_autoref
+from daily_sync import download_autoref, find_autoref_pdf_from_page
 
 
 class TestDownloadAutoref:
@@ -24,9 +24,9 @@ class TestDownloadAutoref:
         mock_response = MagicMock()
         mock_response.text = '<html><body><a href="file.pdf">Автореферат</a></body></html>'
         
-        with patch('daily_sync.find_autoref_pdf_from_page', return_value='file.pdf'):
+        with patch('vak_sync.pdf.find_autoref_pdf_from_page', return_value='file.pdf'):
             # Should call find_autoref_pdf_from_page for non-PDF URL
-            with patch('daily_sync.download_autoref', return_value=(None, "Не PDF", "")):
+            with patch('vak_sync.pdf.download_autoref', return_value=(None, "Не PDF", "")):
                 pass
 
     def test_direct_pdf_url(self, tmp_path):
@@ -40,7 +40,7 @@ class TestDownloadAutoref:
         mock_response.iter_content.return_value = [test_pdf.read_bytes()]
         
         with patch('requests.get', return_value=mock_response):
-            with patch('daily_sync.AUTOREFS_DIR', str(tmp_path)):
+            with patch('vak_sync.pdf.AUTOREFS_DIR', str(tmp_path)):
                 result = download_autoref('https://example.com/file.pdf', "Test", "2026-06-04")
                 assert result[0] is not None
                 assert result[1] == "OK"
@@ -52,14 +52,14 @@ class TestDownloadAutoref:
         mock_response.iter_content.return_value = [b"x" * 100]
         
         with patch('requests.get', return_value=mock_response):
-            with patch('daily_sync.AUTOREFS_DIR', str(tmp_path)):
+            with patch('vak_sync.pdf.AUTOREFS_DIR', str(tmp_path)):
                 result = download_autoref('https://example.com/file.pdf', "Test", "2026-06-04")
                 # Should fail due to small size
                 assert result[1] != "OK"
 
     def test_existing_file_cached(self, tmp_path):
         """Существующий файл с совпадающим URL - кэш."""
-        import daily_sync as ds
+        import vak_sync.pdf as ds
 
         test_file = tmp_path / "Test_2026_06_04.pdf"
         test_file.write_bytes(b"%PDF-1.4" + b"x" * (310 * 1024))
@@ -80,7 +80,7 @@ class TestDownloadAutoref:
 
     def test_no_cache_without_url(self, tmp_path):
         """Без previous_pdf_url файл не используется - скачивается заново."""
-        import daily_sync as ds
+        import vak_sync.pdf as ds
 
         # Pre-create a file (simulates old incorrect download)
         test_file = tmp_path / "Test_2026_06_04.pdf"
@@ -108,7 +108,7 @@ class TestDownloadAutoref:
 
     def test_http_error(self, tmp_path):
         """HTTP ошибка."""
-        import daily_sync as ds
+        import vak_sync.pdf as ds
 
         mock_response = MagicMock()
         mock_response.status_code = 404
@@ -126,7 +126,7 @@ class TestDownloadAutoref:
 
     def test_potential_pdf_url_with_content_type(self, tmp_path):
         """URL вида /avtoreferat.html определяется как PDF по Content-Type."""
-        import daily_sync as ds
+        import vak_sync.pdf as ds
 
         test_file = tmp_path / "Test_2026_06_04.pdf"
         original_dir = ds.AUTOREFS_DIR
@@ -161,7 +161,7 @@ class TestDownloadAutoref:
 
     def test_potential_pdf_not_pdf(self, tmp_path):
         """URL вида /avtoreferat.html не является PDF - должен искать на странице."""
-        import daily_sync as ds
+        import vak_sync.pdf as ds
 
         test_file = tmp_path / "Test_2026_06_04.pdf"
         original_dir = ds.AUTOREFS_DIR
@@ -181,7 +181,7 @@ class TestDownloadAutoref:
         mock_download.iter_content.return_value = [b"%PDF-1.4" + b"x" * (310 * 1024)]
 
         with patch('requests.head', return_value=mock_head):
-            with patch('daily_sync.find_autoref_pdf_from_page', return_value=mock_pdf_url):
+            with patch('vak_sync.pdf.find_autoref_pdf_from_page', return_value=mock_pdf_url):
                 with patch('requests.get', return_value=mock_download):
                     result = download_autoref(
                         'https://example.com/avtoreferat.html',
@@ -199,6 +199,6 @@ class TestDownloadAutoref:
         mock_response.iter_content.return_value = [b"x" * 1000]
         
         with patch('requests.get', return_value=mock_response):
-            with patch('daily_sync.AUTOREFS_DIR', str(tmp_path)):
+            with patch('vak_sync.pdf.AUTOREFS_DIR', str(tmp_path)):
                 result = download_autoref('https://example.com/file.pdf', "Test", "2026-06-04")
                 assert result[1] != "OK"

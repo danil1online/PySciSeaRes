@@ -21,6 +21,97 @@ from config import SESSION_SECRET_KEY, AUTOREFS_DIR
 app = Flask(__name__)
 app.secret_key = SESSION_SECRET_KEY
 
+# ======================== API DOCUMENTATION ========================
+
+API_DOCS = {
+    "auth": {
+        "POST /login": {"params": "username, password", "desc": "Авторизация пользователя"},
+        "GET /logout": {"desc": "Выход из системы"},
+    },
+    "search": {
+        "GET /search": {"desc": "Страница поиска диссертаций"},
+        "GET /api/search": {"params": "specialties[], date_from, date_to, query, page", "desc": "API поиска диссертаций"},
+        "GET /export": {"params": "specialties[], date_from, date_to, query", "desc": "Экспорт результатов в Excel"},
+    },
+    "detail": {
+        "GET /detail/<id>": {"desc": "Детальная информация об объявлении"},
+        "POST /detail/<id>/save": {"params": "publications[]", "desc": "Сохранение редактирования публикаций"},
+        "POST /api/save_search": {"params": "specialties, date_from, date_to, query", "desc": "Сохранение параметров поиска"},
+        "POST /api/clear_search": {"desc": "Очистка параметров поиска"},
+    },
+    "qa": {
+        "GET /qa": {"desc": "Страница QA с LLM"},
+        "POST /api/qa": {"params": "question", "desc": "Вопрос к LLM (генерация SQL)"},
+    },
+    "admin": {
+        "GET /admin": {"desc": "Панель администратора"},
+        "POST /admin/create": {"params": "username, password, is_admin", "desc": "Создание пользователя"},
+        "POST /admin/delete/<username>": {"desc": "Удаление пользователя"},
+    },
+}
+
+@app.route("/docs")
+@login_required
+def docs():
+    """Документация API."""
+    html_parts = [
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>API Docs</title>',
+        '<style>',
+        'body { font-family: monospace; margin: 20px; background: #1a1a2e; color: #e0e0e0; }',
+        'h1 { color: #00d4ff; }',
+        'h2 { color: #00d4ff; margin-top: 30px; border-bottom: 1px solid #333; padding-bottom: 5px; }',
+        'table { border-collapse: collapse; width: 100%; margin: 10px 0; }',
+        'th, td { border: 1px solid #333; padding: 8px; text-align: left; }',
+        'th { background: #16213e; color: #00d4ff; }',
+        'tr:nth-child(even) { background: #0f3460; }',
+        '.method { color: #53ff5a; font-weight: bold; }',
+        '.params { color: #ffaa00; }',
+        '</style></head><body>',
+        '<h1>📚 VAK Adverts API Documentation</h1>',
+        '<p>Flask application for managing VAK dissertation advertisements.</p>',
+        '<p>Base URL: <code>/</code></p>',
+    ]
+
+    for category, endpoints in API_DOCS.items():
+        html_parts.append(f'<h2>{category.upper()}</h2>')
+        html_parts.append('<table><tr><th>Endpoint</th><th>Params</th><th>Description</th></tr>')
+        for endpoint, info in endpoints.items():
+            method_path = endpoint.split(' ', 1)
+            method = method_path[0] if len(method_path) > 1 else 'GET'
+            path = method_path[1] if len(method_path) > 1 else method_path[0]
+            params = info.get('params', '')
+            desc = info.get('desc', '')
+            html_parts.append(
+                f'<tr>'
+                f'<td><span class="method">{method}</span> <code>{path}</code></td>'
+                f'<td class="params">{params}</td>'
+                f'<td>{desc}</td>'
+                f'</tr>'
+            )
+        html_parts.append('</table>')
+
+    html_parts.append(
+        '<h2>🔐 Authentication</h2>'
+        '<p>All API endpoints except <code>/login</code> require authentication via session.</p>'
+        '<p>Admin endpoints (<code>/admin/*</code>) require <code>is_admin=1</code>.</p>'
+        '<h2>📊 Search API Response Format</h2>'
+        '<pre>{'
+        '  "adverts": [...],  // Array of adverts'
+        '  "total": 100,       // Total count'
+        '  "page": 1,          // Current page'
+        '  "per_page": 1000,   // Items per page'
+        '  "total_pages": 1    // Total pages'
+        '}</pre>'
+        '<h2>⚙️ Configuration</h2>'
+        '<pre>PORT=5002'
+        'VAK_SECRET_KEY=your-secret-key</pre>'
+        '<p>Run: <code>python app.py</code></p>'
+        '<hr><p>Generated at ' + datetime.now().strftime('%Y-%m-%d %H:%M') + '</p>'
+        '</body></html>'
+    )
+
+    return '\n'.join(html_parts)
+
 
 @app.context_processor
 def inject_year():

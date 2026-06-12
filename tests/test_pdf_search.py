@@ -54,7 +54,7 @@ class TestFindAutorefPdfFromPage:
         """Стратегия 1: текст ссылки содержит 'автореферат'."""
         def fake_check_pages(url):
             return 15  # valid page count
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '''<html><body>
         <a href="https://example.com/avtoref.pdf">Автореферат</a>
@@ -75,7 +75,7 @@ class TestFindAutorefPdfFromPage:
         """Стратегия 2: 'автореферат' в соседнем тексте."""
         def fake_check_pages(url):
             return 25
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '''<html><body>
         <p>Автореферат диссертации: <a href="https://example.com/file.pdf">Посмотреть файл</a></p>
@@ -96,7 +96,7 @@ class TestFindAutorefPdfFromPage:
         """Стратегия 3: action слова + PDF."""
         def fake_check_pages(url):
             return 30
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '''<html><body>
         <div>
@@ -120,7 +120,7 @@ class TestFindAutorefPdfFromPage:
         """Стратегия 4: фоллбэк на любой PDF."""
         def fake_check_pages(url):
             return 40
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '''<html><body>
         <a href="https://example.com/any.pdf">Ссылка</a>
@@ -141,7 +141,7 @@ class TestFindAutorefPdfFromPage:
         """Нет PDF на странице."""
         def fake_check_pages(url):
             return 10
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '''<html><body>
         <a href="https://example.com/page.html">Страница</a>
@@ -162,7 +162,7 @@ class TestFindAutorefPdfFromPage:
         """Тест резолва относительных URL."""
         def fake_check_pages(url):
             return 20
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '''<html><body>
         <p>Автореферат: <a href="/files/avtoref.pdf">Скачать</a></p>
@@ -184,7 +184,7 @@ class TestFindAutorefPdfFromPage:
         """Нет ссылок на странице."""
         def fake_check_pages(url):
             return 10
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '''<html><body>
         <p>Просто текст</p>
@@ -205,7 +205,7 @@ class TestFindAutorefPdfFromPage:
         """HTTP ошибка."""
         def fake_check_pages(url):
             return 10
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '<html><body>Error</body></html>'
         
@@ -244,7 +244,7 @@ class TestFindAutorefPdfFromPageMock:
         """Смешанные URL (абсолютные и относительные)."""
         def fake_check_pages(url):
             return 30  # valid
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '''<html><body>
         <a href="https://external.com/external.pdf">Внешняя</a>
@@ -266,7 +266,7 @@ class TestFindAutorefPdfFromPageMock:
         def fake_check_pages(url):
             call_count[0] += 1
             return 100  # too large
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '''<html><body>
         <a href="https://example.com/avtoref.pdf">Автореферат</a>
@@ -289,7 +289,7 @@ class TestFindAutorefPdfFromPageMock:
             if 'large' in url:
                 return 100  # too large
             return 20  # valid
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '''<html><body>
         <a href="https://example.com/large.pdf">Ссылка 1</a>
@@ -311,7 +311,7 @@ class TestFindAutorefPdfFromPageMock:
         """PDF ровно 50 страниц — допустимый."""
         def fake_check_pages(url):
             return 50
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '''<html><body>
         <a href="https://example.com/boundary.pdf">Автореферат</a>
@@ -332,7 +332,7 @@ class TestFindAutorefPdfFromPageMock:
         """PDF 51 страница — пропускается."""
         def fake_check_pages(url):
             return 51
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
         
         html = '''<html><body>
         <a href="https://example.com/toobig.pdf">Автореферат</a>
@@ -357,7 +357,7 @@ class TestFindAutorefStrategy4Scoring:
         """Когда все кандидаты имеют отрицательный скор, вызывается LLM."""
         def fake_check_pages(url):
             return 5
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
 
         llm_called = []
 
@@ -366,7 +366,7 @@ class TestFindAutorefStrategy4Scoring:
             # LLM возвращает URL автореферата
             return 'https://example.com/avtoref.pdf'
 
-        monkeypatch.setattr('daily_sync._find_autoref_with_llm', fake_llm)
+        monkeypatch.setattr('vak_sync.pdf._find_autoref_with_llm', fake_llm)
 
         # Ни одно слово "автореферат" в тексте — стратегии 1-3 не сработают.
         # "Протокол" и "диссертация" в именах файлов → отрицательный скор → LLM
@@ -392,13 +392,13 @@ class TestFindAutorefStrategy4Scoring:
         """PDF с 'автореферат' в имени получает более высокий скор."""
         def fake_check_pages(url):
             return 20
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
 
         # Без LLM — фоллбэк должен выбрать правильный файл сам
         def fake_llm(*args, **kwargs):
             pytest.fail("LLM не должен вызываться — фоллбэк справляется сам")
 
-        monkeypatch.setattr('daily_sync._find_autoref_with_llm', fake_llm)
+        monkeypatch.setattr('vak_sync.pdf._find_autoref_with_llm', fake_llm)
 
         html = '''<html><body>
         <a href="https://example.com/dissertation.pdf">Полный текст</a>
@@ -420,7 +420,7 @@ class TestFindAutorefStrategy4Scoring:
         """Файл с 'диссертация' в имени получает отрицательный скор."""
         def fake_check_pages(url):
             return 20
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
 
         # Если диссертация имеет более низкий скор — фоллбэк выбирает другой файл
         html = '''<html><body>
@@ -443,7 +443,7 @@ class TestFindAutorefStrategy4Scoring:
         """ФИО передаётся в функцию — проверяем что не ломает."""
         def fake_check_pages(url):
             return 20
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
 
         html = '''<html><body>
         <a href="https://example.com/avtoref.pdf">Смотреть</a>
@@ -477,7 +477,7 @@ class TestFindAutorefStrategy4Scoring:
             if 'dissert' in url:
                 return 200
             return 20
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
 
         # HTML как на странице Баринава: 2 ссылки на автореферат (дубликат),
         # протоколы, отзывы, диссертация
@@ -532,8 +532,8 @@ class TestFindAutorefStrategy4Scoring:
         def fake_check_pages(url):
             return 28
 
-        monkeypatch.setattr('daily_sync.requests.head', fake_head)
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf.requests.head', fake_head)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
 
         # HTML: ссылка на PDF без .pdf расширения, текст содержит "автореферат"
         html = '''<html><body>
@@ -567,7 +567,7 @@ class TestFindAutorefStrategy4Scoring:
             mock.url = url
             return mock
 
-        monkeypatch.setattr('daily_sync.requests.head', fake_head)
+        monkeypatch.setattr('vak_sync.pdf.requests.head', fake_head)
 
         html = '''<html><body>
         <a href="https://example.com/cms_files/p_file/471563267699f417240406">
@@ -579,7 +579,7 @@ class TestFindAutorefStrategy4Scoring:
         def fake_check_pages(url):
             return 20
 
-        monkeypatch.setattr('daily_sync._check_pdf_page_count', fake_check_pages)
+        monkeypatch.setattr('vak_sync.pdf._check_pdf_page_count', fake_check_pages)
 
         server = MockHTTPServer(19921, {
             '/page': {'status': 200, 'html': html}
