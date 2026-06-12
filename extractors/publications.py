@@ -81,37 +81,42 @@ def _send_to_llm(text):
 
 
 def _send_to_llm_json(text):
-    """Отправляет текст в LLM с промптом для JSON-ответа и возвращает список публикаций."""
+    """Отправляет текст в LLM с промптом для JSON-ответа.
+
+    Возвращает (публикации, время, успех).
+    Успех = False только при таймауте/ошибке сети.
+    Пустой массив [] — валидный результат (0 публикаций).
+
+    JSON-LLM даёт самые точные результаты, поэтому ждём до 5 минут
+    (LLM-сервер может "засыпать", cold start занимает 30-90 сек).
+    """
     user_prompt = PUB_USER_PROMPT.format(text=text)
     start = time.time()
-    for attempt in range(3):
-        try:
-            resp = requests.post(
-                LLM_API_URL,
-                headers=HEADERS,
-                json={
-                    "model": LLM_MODEL,
-                    "messages": [
-                        {"role": "system", "content": PUB_SYSTEM_PROMPT_JSON},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "max_tokens": LLM_MAX_TOKENS,
-                    "temperature": LLM_TEMPERATURE,
-                },
-                timeout=LLM_TIMEOUT,
-            )
-            elapsed = time.time() - start
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
-            pubs = _parse_llm_json_response(content)
-            if pubs:
-                return pubs, elapsed
-        except requests.exceptions.Timeout:
-            if attempt < 2:
-                time.sleep(2)
-        except Exception:
-            pass
-    return [], time.time() - start
+    json_timeout = 300  # 5 минут — ждём cold start
+    try:
+        resp = requests.post(
+            LLM_API_URL,
+            headers=HEADERS,
+            json={
+                "model": LLM_MODEL,
+                "messages": [
+                    {"role": "system", "content": PUB_SYSTEM_PROMPT_JSON},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "max_tokens": LLM_MAX_TOKENS,
+                "temperature": LLM_TEMPERATURE,
+            },
+            timeout=json_timeout,
+        )
+        elapsed = time.time() - start
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
+        pubs = _parse_llm_json_response(content)
+        return pubs, elapsed, True
+    except requests.exceptions.Timeout:
+        return [], time.time() - start, False
+    except Exception:
+        return [], time.time() - start, False
 
 
 def _parse_llm_json_response(content):
@@ -341,9 +346,10 @@ def _find_publications_section(text):
 def extract_publications_from_pdf_text(text):
     """Извлекает публикации из текста (PDF уже прочитан снаружи).
     
-    Сначала пробует JSON-LLM на последних 5 страницах (~12000 символов).
-    Если получено >=8 публикаций — использует их.
-    Иначе использует старый метод: regex от начала раздела публикаций + старый LLM.
+    Порядок:
+    1. JSON-LLM (последние ~5 страниц, ~12000 символов)
+       - Если JSON валиден (даже пустой []) — используем результат
+    2. Regex + LLM fallback (если JSON не валиден)
     
     Возвращает: (publications, found_section, time_taken)
     """
@@ -352,36 +358,37 @@ def extract_publications_from_pdf_text(text):
     # Берём последние ~5 страниц текста для LLM
     llm_text = text[-12000:] if len(text) > 12000 else text
 
-    # Шаг 1: пробуем JSON-LLM на последних страницах
-    json_pubs, json_time = _send_to_llm_json(llm_text)
-    if json_pubs:
-        print(f"  JSON-LLM нашёл {len(json_pubs)} публикаций (≥8 — используем)")
-        # Преобразуем JSON-публикации в формат строк для parse_pub_to_json
+    # Шаг 1: JSON-LLM — всегда пробуем первым
+    json_pubs, json_time, json_success = _send_to_llm_json(llm_text)
+
+    if json_success:
+        # JSON получен валидный (даже []) — используем
         formatted_pubs = []
         for p in json_pubs:
             if isinstance(p, dict):
                 formatted_pubs.append(p)
+        print(f"  JSON-LLM: {len(formatted_pubs)} публикаций ({json_time:.1f}с)")
         return formatted_pubs, found, json_time
 
-    # Шаг 2: fallback на старый метод
+    # Шаг 2: JSON не получен (таймаут/ошибка) — fallback на Regex + LLM
     if idx < 0:
+        print(f"  JSON-LLM не удался, раздел не найден")
         return [], found, json_time
 
-    # Regex работает от начала раздела публикаций
+    # Regex от начала раздела публикаций
     pub_text = text[idx:idx + 4000]
     regex_pubs = _extract_publications_regex(pub_text)
-    print(f"  Regex нашёл {len(regex_pubs)} публикаций (раздел: {found})")
+    print(f"  Regex: {len(regex_pubs)} публикаций (раздел: {found})")
 
     llm_pubs = []
     llm_time = None
     try:
-        # LLM получает только последние ~5 страниц текста
         response, llm_time = _send_to_llm(llm_text)
         llm_pubs = _parse_llm_publications(response)
         if len(llm_pubs) > 30:
             llm_pubs = llm_pubs[:20]
         if llm_pubs:
-            print(f"  LLM нашёл {len(llm_pubs)} публикаций")
+            print(f"  LLM: {len(llm_pubs)} публикаций ({llm_time:.1f}с)")
     except Exception as e:
         print(f"  Ошибка LLM: {e}")
 
