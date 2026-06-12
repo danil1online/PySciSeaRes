@@ -20,25 +20,77 @@ PUB_SYSTEM_PROMPT = (
     "Убери ВСЕ дубликаты. Если раздел не найден — верни {\"error\": \"not_found\"}."
 )
 
+# ============================================================
+# Промпт для JSON-LLM
+# ============================================================
+#
+# Структура каждой публикации:
+#   - number: порядковый номер (int, опционально)
+#   - authors: список авторов (обязательно)
+#   - title: название статьи (обязательно)
+#   - authors_extended: расширенный список авторов (опционально)
+#   - journal: название журнала (если журнал) ИЛИ
+#   - conference: название конференции (если материалы конференции)
+#   - conference_location: место проведения конференции (если conference)
+#   - conference_date: дата конференции (если conference)
+#   - year: год (int)
+#   - volume: том (опционально)
+#   - issue: номер (опционально)
+#   - pages: страницы (опционально)
+#   - extra: дополнительная информация (опционально)
+#
+# ВАЖНО: authors и title должны быть всегда. Остальные поля —
+#         если информация есть в тексте.
+#
+
 PUB_SYSTEM_PROMPT_JSON = (
-    "Ты — помощник по извлечению библиографических данных из авторефератов диссертаций. "
-    "Твоя задача — найти и извлечь ВСЕ публикации автора в разделе "
-    "'ОСНОВНЫЕ ПУБЛИКАЦИИ ПО ТЕМЕ ИССЛЕДОВАНИЯ' или аналогичном. "
-    "Для каждой публикации найди: порядок (номер), авторы (ФИО), "
-    "название статьи, название журнала/издания, год, страницы. "
-    "Верни результат в формате JSON массива. Если публикаций не найдено — верни пустой массив []"
+    "Ты — экспертный библиограф. Твоя задача — извлечь ВСЕ публикации автора из текста автореферата диссертации.\n\n"
+    "Извлекай ТОЛЬКО реальные цитируемые публикации (список работ, опубликованных автором). НЕ включай:\n"
+    "- Выводы и положения диссертации\n"
+    "- Описания структуры работы\n"
+    "- Информацию о руководителе, оппонентах, научной школе\n"
+    "- Апробацию (упоминания конференций, где докладывался автор, но без публикации)\n"
+    "- Списки условных обозначений, определения\n\n"
+    "Каждая публикация — это точная ссылка на работу автора. Обычно они оформлены как:\n"
+    '"1. Иванов И.И., Петров П.П. Название статьи // Журнал. — 2024. — Т. 10. — № 3. — С. 45-50."\n\n'
+    'Или для материалов конференции:\n'
+    '"2. Сидоров С.С. Название доклада // Материалы конференции NAME. — Место, 2024. — С. 100-105."\n\n'
+    "ВАЖНО:\n"
+    "- authors (список авторов) и title (название) — ОБЯЗАТЕЛЬНЫЕ поля. Если статья не имеет автора — не включай её.\n"
+    "- journal ИЛИ conference — должно быть заполнено, если источник указан.\n"
+    "- year — обязательно, если указан в тексте.\n"
+    "- Остальные поля (volume, issue, pages, extra) — заполняй, если есть в тексте."
 )
 
-PUB_USER_PROMPT = (
-    "Извлеки все публикации из предоставленного текста автореферата.\n\n"
-    "Каждая публикация должна содержать:\n"
-    "1. authors — ФИО авторов\n"
-    "2. title — название статьи\n"
-    "3. journal — название журнала/издания\n"
-    "4. year — год\n"
-    "5. pages — номера страниц\n\n"
-    "Верни ТОЛЬКО JSON массив, без дополнительного текста.\n\n"
-    "Текст:\n\n{text}"
+PUB_USER_PROMPT_JSON = (
+    "Извлеки ВСЕ публикации из раздела публикаций автореферата.\n\n"
+    "Верни ТОЛЬКО JSON массив объектов. НЕ добавляй никакой текст, комментарии, markdown или другое содержимое. Только массив JSON.\n\n"
+    "Структура одного объекта публикации:\n"
+    "{{\n"
+    '  "number": 1,\n'
+    '  "authors": ["Иванов И.И.", "Петров П.П."],\n'
+    '  "title": "Название статьи",\n'
+    '  "authors_extended": ["Иванов И.И.", "Петров П.П.", "Сидоров С.С."],\n'
+    '  "journal": "Название журнала",\n'
+    '  "conference": "Название конференции",\n'
+    '  "conference_location": "Место",\n'
+    '  "conference_date": "2024-05-01",\n'
+    '  "year": 2024,\n'
+    '  "volume": "10",\n'
+    '  "issue": "3",\n'
+    '  "pages": "45-50",\n'
+    '  "extra": "Вак, scopus"\n'
+    "}}\n\n"
+    "Правила:\n"
+    "1. authors — массив строк с ФИО авторов. Разделяй запятыми и точками.\n"
+    "2. title — название статьи/работы.\n"
+    "3. journal — название журнала (если журнал), ИЛИ conference — название конференции (если материалы).\n"
+    "4. year — год в виде числа.\n"
+    "5. Если информация отсутствует — пропусти поле или поставь null.\n"
+    "6. НЕ придумывай авторов, названия или журналы.\n"
+    "7. Если раздел публикаций не найден — верни пустой массив [].\n\n"
+    "Текст автореферата (последние страницы):\n\n"
+    "{text}"
 )
 
 
@@ -90,7 +142,7 @@ def _send_to_llm_json(text):
     JSON-LLM даёт самые точные результаты, поэтому ждём до 5 минут
     (LLM-сервер может "засыпать", cold start занимает 30-90 сек).
     """
-    user_prompt = PUB_USER_PROMPT.format(text=text)
+    user_prompt = PUB_USER_PROMPT_JSON.format(text=text)
     start = time.time()
     json_timeout = 300  # 5 минут — ждём cold start
     try:
@@ -103,8 +155,8 @@ def _send_to_llm_json(text):
                     {"role": "system", "content": PUB_SYSTEM_PROMPT_JSON},
                     {"role": "user", "content": user_prompt},
                 ],
-                "max_tokens": LLM_MAX_TOKENS,
-                "temperature": LLM_TEMPERATURE,
+                "max_tokens": 4000,
+                "temperature": 0.1,
             },
             timeout=json_timeout,
         )
@@ -124,21 +176,20 @@ def _parse_llm_json_response(content):
     if not content:
         return []
 
-    # Извлекаем JSON из ответа
+    # Извлекаем JSON из markdown
     if "```json" in content:
         json_str = content.split("```json")[1].split("```")[0].strip()
     elif "```" in content:
         json_str = content.split("```")[1].split("```")[0].strip()
     else:
         start = content.find("[")
-        if start >= 0:
-            json_str = content[start:].strip()
-        else:
+        if start < 0:
             return []
+        json_str = content[start:].strip()
 
     try:
         data = json.loads(json_str)
-        if isinstance(data, list) and len(data) >= 8:
+        if isinstance(data, list):
             return data
         return []
     except json.JSONDecodeError:
@@ -346,16 +397,18 @@ def _find_publications_section(text):
 def extract_publications_from_pdf_text(text):
     """Извлекает публикации из текста (PDF уже прочитан снаружи).
     
-    Порядок:
-    1. JSON-LLM (последние ~5 страниц, ~12000 символов)
+    Четырёхэтапная схема:
+    1. JSON-LLM (последние ~5 страниц, ~12000 символов) — приоритетный метод
        - Если JSON валиден (даже пустой []) — используем результат
-    2. Regex + LLM fallback (если JSON не валиден)
+    2. Regex-парсинг (от начала раздела публикаций) — fallback
+    3. LLM-экстракция (старый метод, без JSON) — fallback
+    4. Объединение результатов с дедупликацией
     
     Возвращает: (publications, found_section, time_taken)
     """
     idx, found = _find_publications_section(text)
 
-    # Берём последние ~5 страниц текста для LLM
+    # Берём последние ~5 страниц текста для JSON-LLM
     llm_text = text[-12000:] if len(text) > 12000 else text
 
     # Шаг 1: JSON-LLM — всегда пробуем первым
@@ -370,16 +423,17 @@ def extract_publications_from_pdf_text(text):
         print(f"  JSON-LLM: {len(formatted_pubs)} публикаций ({json_time:.1f}с)")
         return formatted_pubs, found, json_time
 
-    # Шаг 2: JSON не получен (таймаут/ошибка) — fallback на Regex + LLM
+    # Шаг 1 не удался — fallback на Regex + LLM
     if idx < 0:
         print(f"  JSON-LLM не удался, раздел не найден")
-        return [], found, json_time
+        return [], None, json_time
 
-    # Regex от начала раздела публикаций
+    # Шаг 2: Regex от начала раздела публикаций
     pub_text = text[idx:idx + 4000]
     regex_pubs = _extract_publications_regex(pub_text)
     print(f"  Regex: {len(regex_pubs)} публикаций (раздел: {found})")
 
+    # Шаг 3: LLM-экстракция
     llm_pubs = []
     llm_time = None
     try:
@@ -392,6 +446,7 @@ def extract_publications_from_pdf_text(text):
     except Exception as e:
         print(f"  Ошибка LLM: {e}")
 
+    # Шаг 4: Объединение результатов
     publications = _merge_publications(regex_pubs, llm_pubs)
     return publications, found, llm_time
 
