@@ -49,6 +49,17 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # column already exists
 
+    # Migration: add source_url and source_name columns to publications if they don't exist
+    try:
+        c.execute("ALTER TABLE publications ADD COLUMN source_url TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
+    try:
+        c.execute("ALTER TABLE publications ADD COLUMN source_name TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
     c.execute("""CREATE TABLE IF NOT EXISTS publications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         advert_id TEXT NOT NULL,
@@ -59,6 +70,8 @@ def init_db():
         year INTEGER,
         pages TEXT,
         email TEXT,
+        source_url TEXT,
+        source_name TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (advert_id) REFERENCES adverts(id) ON DELETE CASCADE
     )""")

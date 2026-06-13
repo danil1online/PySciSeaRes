@@ -217,18 +217,29 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
             # Search for emails in publications
             print("\n    Поиск email авторов...", end="")
             try:
-                email_results = find_emails_for_publications(struct_pubs)
+                email_results = find_emails_for_publications(struct_pubs, pdf_full_text)
                 email_count = 0
-                for i, (pub, emails) in enumerate(email_results):
+                source_count = 0
+                for i, (pub, emails, source) in enumerate(email_results):
                     if emails:
                         email_str = "; ".join(emails)
+                        source_url = source.get('url', '') if source else ''
+                        source_name = source.get('source_name', '') if source else ''
                         c.execute(
-                            "UPDATE publications SET email = ? WHERE advert_id = ? AND pub_number = ?",
-                            (email_str, adv_id, i + 1)
+                            "UPDATE publications SET email = ?, source_url = ?, source_name = ? WHERE advert_id = ? AND pub_number = ?",
+                            (email_str, source_url, source_name, adv_id, i + 1)
                         )
                         email_count += 1
+                    elif source:
+                        source_url = source.get('url', '')
+                        source_name = source.get('source_name', '')
+                        c.execute(
+                            "UPDATE publications SET source_url = ?, source_name = ? WHERE advert_id = ? AND pub_number = ?",
+                            (source_url, source_name, adv_id, i + 1)
+                        )
+                        source_count += 1
                 if email_count:
-                    print(f" OK ({email_count} email)", end="")
+                    print(f" OK ({email_count} email, {source_count} источников)", end="")
                 else:
                     print(f" (не найдены)", end="")
                 conn.commit()

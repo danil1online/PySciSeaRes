@@ -1,7 +1,9 @@
 """Поиск email авторов публикаций по открытым источникам."""
 
 import re
+import os
 import time
+import json
 import requests
 import pdfplumber
 import io
@@ -14,7 +16,6 @@ from config import (
 
 SEMANTIC_SCHOLAR_API = "https://api.semanticscholar.org/graph/v1/paper/search"
 CROSSREF_API = "https://api.crossref.org/works"
-CYBERLENINKA_API = "https://cyberleninka.ru/search/json"
 DOI_RESOLVER = "https://doi.org/"
 
 USER_AGENT = (
@@ -97,6 +98,7 @@ def _search_crossref(title, author="", year=None, limit=3):
     }
 
     if author:
+        # Extract last name from author string (Russian format: "Фамилия, И.О.")
         fam_match = re.match(r'([А-ЯЁA-Z][а-яёa-z]+)', author)
         if fam_match:
             params["query.author"] = fam_match.group(1)
@@ -118,42 +120,6 @@ def _search_crossref(title, author="", year=None, limit=3):
                             or item.get("created", {}).get("date-parts", [[0]])[0][0],
                     "links": item.get("link", []),
                     "journal": (item.get("container-title", []) or [""])[0],
-                })
-            return results
-    except Exception:
-        pass
-    return []
-
-
-def _search_cyberleninka(title, author="", year=None, limit=5):
-    """Ищет публикацию через КиберЛенинку."""
-    query = _normalize_title(title)
-    if not query:
-        return []
-
-    params = {
-        "limit": limit,
-        "title": re.sub(r'\+', ' ', query),
-        "sort": "citations",
-    }
-    if year:
-        params["from_year"] = str(year)
-
-    try:
-        r = requests.get(CYBERLENINKA_API, params=params, timeout=15,
-                         headers={"User-Agent": USER_AGENT})
-        if r.status_code == 200:
-            data = r.json()
-            items = data.get("data", {}).get("items", [])
-            results = []
-            for item in items:
-                results.append({
-                    "title": item.get("title", ""),
-                    "url": item.get("url", ""),
-                    "authors": item.get("authors", []),
-                    "year": item.get("year"),
-                    "doi": item.get("doi"),
-                    "pdf_url": item.get("pdf_url", ""),
                 })
             return results
     except Exception:
@@ -220,30 +186,71 @@ def _find_pdf_url_from_html(html_url):
     return None
 
 
-def _find_source_for_publication(pub):
+def _extract_dois_from_autoref_text(text):
+    """Извлекает все DOI из текста автореферата."""
+    # Паттерны для DOI
+    doi_patterns = [
+        r'doi[.:]\s*(10\.\d+/[^\s\n]+)',
+        r'https?://doi\.org/(10\.\d+/[^\s\n]+)',
+        r'DOI:\s*(10\.\d+/[^\s\n]+)',
+    ]
+    
+    dois = []
+    for pattern in doi_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        for doi in matches:
+            doi = doi.strip().rstrip('.;,')
+            if doi and doi not in dois:
+                dois.append(doi)
+    
+    return dois
+
+
+def _find_source_for_publication(pub, autoref_text=None):
     """Ищет источник для публикации.
 
-    Возвращает: {source_type, url, title, authors, doi} или None.
+    Возвращает: {source_type, url, title, authors, doi, source_name} или None.
+    source_name - название источника (Semantic Scholar, Crossref, DOI resolver, autoref)
     """
     pub_title = pub.get('title', '')
     pub_authors = pub.get('authors', '')
     pub_doi = pub.get('doi')
     pub_url = pub.get('url')
     pub_year = pub.get('year')
+    
+    # Convert authors list to string if needed
+    if isinstance(pub_authors, list):
+        pub_authors = ", ".join(pub_authors)
 
-    # 1. DOI из текста
+    # 1. DOI из текста публикации
     if pub_doi:
         resolved = _resolve_doi(pub_doi)
         if resolved and resolved.get('status') == 200:
             return {'source_type': 'html', 'url': resolved['resolved_url'],
-                    'title': pub_title, 'authors': pub_authors, 'doi': pub_doi}
+                    'title': pub_title, 'authors': pub_authors, 'doi': pub_doi,
+                    'source_name': 'DOI resolver'}
 
-    # 2. URL из текста
+    # 2. URL из текста публикации
     if pub_url:
         return {'source_type': 'html', 'url': pub_url,
-                'title': pub_title, 'authors': pub_authors, 'doi': pub_doi}
+                'title': pub_title, 'authors': pub_authors, 'doi': pub_doi,
+                'source_name': 'автореферат'}
 
-    # 3. Semantic Scholar
+    # 3. Ищем DOI в тексте автореферата
+    if autoref_text and not pub_doi:
+        dois = _extract_dois_from_autoref_text(autoref_text)
+        for doi in dois:
+            # Проверяем, относится ли DOI к этой публикации (по году или авторам)
+            resolved = _resolve_doi(doi)
+            if resolved and resolved.get('status') == 200:
+                # Проверяем совпадение по заголовку
+                resolved_title = resolved.get('resolved_title', '')
+                if resolved_title and _titles_match(pub_title, resolved_title):
+                    return {'source_type': 'html', 'url': resolved['resolved_url'],
+                            'title': pub_title, 'authors': pub_authors, 'doi': doi,
+                            'source_name': 'DOI из автореферата'}
+
+    # 4. Semantic Scholar
     ss_results = _search_semantic_scholar(pub_title, pub_authors, pub_year)
     if ss_results:
         for ss in ss_results:
@@ -256,6 +263,7 @@ def _find_source_for_publication(pub):
                         for a in ss.get("authors", [])
                     ),
                     'doi': ss.get("externalIds", {}).get("DOI"),
+                    'source_name': 'Semantic Scholar',
                 }
                 pdf_info = ss.get("openAccessPdf")
                 if pdf_info and pdf_info.get("url"):
@@ -271,7 +279,7 @@ def _find_source_for_publication(pub):
                         result['url'] = pdf_url
                     return result
 
-    # 4. Crossref
+    # 5. Crossref
     cr_results = _search_crossref(pub_title, pub_authors, pub_year)
     if cr_results:
         for cr in cr_results:
@@ -285,6 +293,7 @@ def _find_source_for_publication(pub):
                         for a in cr.get("authors", [])
                     ),
                     'doi': doi,
+                    'source_name': 'Crossref',
                 }
                 if doi:
                     resolved = _resolve_doi(doi)
@@ -297,30 +306,6 @@ def _find_source_for_publication(pub):
                         result['source_type'] = 'pdf'
                         result['url'] = link['url']
                         return result
-
-    # 5. КиберЛенинка
-    cl_results = _search_cyberleninka(pub_title, pub_authors, pub_year)
-    if cl_results:
-        for cl in cl_results:
-            cl_title = cl.get("title", "")
-            if _titles_match(pub_title, cl_title):
-                result = {
-                    'title': cl_title,
-                    'authors': ", ".join(cl.get("authors", [])),
-                    'doi': cl.get("doi"),
-                }
-                if cl.get("pdf_url"):
-                    result['source_type'] = 'pdf'
-                    result['url'] = cl['pdf_url']
-                    return result
-                if cl.get("url"):
-                    result['source_type'] = 'html'
-                    result['url'] = cl['url']
-                    pdf_url = _find_pdf_url_from_html(cl['url'])
-                    if pdf_url:
-                        result['source_type'] = 'pdf'
-                        result['url'] = pdf_url
-                    return result
 
     return None
 
@@ -428,42 +413,43 @@ def find_email_regex(page_text):
     return emails[0] if emails else None
 
 
-def find_email_for_publication(pub):
+def find_email_for_publication(pub, autoref_text=None):
     """Ищет email для одной публикации.
 
-    Возвращает список email адресов (обычно 1, может больше).
+    Возвращает: {emails: [...], source: {...}} или {emails: [], source: None}
     """
     if not pub:
-        return []
+        return {'emails': [], 'source': None}
 
-    source = _find_source_for_publication(pub)
+    source = _find_source_for_publication(pub, autoref_text)
     if not source:
-        return []
+        return {'emails': [], 'source': None}
 
     page_text = _fetch_source_text(source)
     if not page_text:
-        return []
+        return {'emails': [], 'source': source}
 
     # LLM поиск
     llm_result = _find_email_with_llm(page_text)
     if llm_result and llm_result != "NOT_FOUND":
         emails = EMAIL_REGEX.findall(llm_result)
         if emails:
-            return emails
+            return {'emails': emails, 'source': source}
 
     # Regex fallback
     regex_email = find_email_regex(page_text)
     if regex_email:
-        return [regex_email]
+        return {'emails': [regex_email], 'source': source}
 
-    return []
+    return {'emails': [], 'source': source}
 
 
-def find_emails_for_publications(publications):
+def find_emails_for_publications(publications, autoref_text=None):
     """Ищет email для списка публикаций.
 
-    Возвращает список: [(pub_data, email_list), ...]
+    Возвращает список: [(pub_data, email_list, source_info), ...]
     email_list — список найденных email для каждой публикации.
+    source_info — информация об источнике или None.
     """
     if not publications:
         return []
@@ -471,10 +457,10 @@ def find_emails_for_publications(publications):
     results = []
     for i, pub in enumerate(publications):
         try:
-            emails = find_email_for_publication(pub)
-            results.append((pub, emails))
+            result = find_email_for_publication(pub, autoref_text)
+            results.append((pub, result['emails'], result['source']))
             time.sleep(1)  # Пауза между запросами
         except Exception:
-            results.append((pub, []))
+            results.append((pub, [], None))
 
     return results

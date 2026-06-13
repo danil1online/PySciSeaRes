@@ -1337,6 +1337,36 @@ main {
     font-size: 0.85rem;
 }
 
+.pub-email-view {
+    color: var(--primary);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.pub-source-link {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.source-link {
+    color: var(--primary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.source-link:hover {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+    text-decoration: none;
+}
+
 .save-actions {
     display: flex;
     gap: 12px;

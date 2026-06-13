@@ -167,7 +167,14 @@
                     <span class="pub-pages-view">{{ pub.pages or '' }}</span>
                     <input type="text" class="pub-email" value="{{ pub.email or '' }}" placeholder="Email автора" style="display:none;">
                     <span class="pub-email-view">{{ pub.email or '' }}</span>
+                    <input type="text" class="pub-source-url" value="{{ pub.source_url or '' }}" placeholder="URL источника" style="display:none;">
+                    <input type="text" class="pub-source-name" value="{{ pub.source_name or '' }}" placeholder="Название источника" style="display:none;">
                 </div>
+                {% if pub.source_url %}
+                <div class="pub-source-link">
+                    <a href="{{ pub.source_url }}" target="_blank" class="source-link" title="{{ pub.source_name or 'Источник' }}">🔗 {{ pub.source_name or 'Источник' }}</a>
+                </div>
+                {% endif %}
                 <div class="pub-actions">
                     <button class="edit-btn btn btn-sm btn-secondary pub-edit-btn" data-pub-id="{{ pub.id }}">✎</button>
                     <button class="delete-btn btn btn-sm btn-danger pub-delete-btn" data-pub-id="{{ pub.id }}" style="display:none;">✕</button>
@@ -247,6 +254,8 @@ function addPublication() {
             <span class="pub-pages-view"></span>
             <input type="text" class="pub-email" value="" placeholder="Email автора">
             <span class="pub-email-view"></span>
+            <input type="text" class="pub-source-url" value="" placeholder="URL источника">
+            <input type="text" class="pub-source-name" value="" placeholder="Название источника">
         </div>
         <div class="pub-actions">
             <button class="edit-btn btn btn-sm btn-secondary pub-edit-btn" style="display:none;">✎</button>
@@ -357,6 +366,8 @@ function saveAll() {
             year: yearNum,
             pages: (item.querySelector('.pub-pages') || {}).value || '',
             email: (item.querySelector('.pub-email') || {}).value || '',
+            source_url: (item.querySelector('.pub-source-url') || {}).value || '',
+            source_name: (item.querySelector('.pub-source-name') || {}).value || '',
         };
         pubs.push(pub);
     });
