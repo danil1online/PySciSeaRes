@@ -349,6 +349,7 @@ def save_detail(advert_id):
         title = str(pub.get("title", "") or "").strip()
         journal = str(pub.get("journal", "") or "").strip()
         pages = str(pub.get("pages", "") or "").strip()
+        email = str(pub.get("email", "") or "").strip()
         year_raw = pub.get("year", "")
         year_val = None
         if year_raw:
@@ -364,16 +365,16 @@ def save_detail(advert_id):
             c.execute("""
                 UPDATE publications
                 SET pub_number = ?, authors = COALESCE(?, ''), title = COALESCE(?, ''),
-                    journal = COALESCE(?, ''), year = ?, pages = COALESCE(?, '')
+                    journal = COALESCE(?, ''), year = ?, pages = COALESCE(?, ''), email = COALESCE(?, '')
                 WHERE id = ?
-            """, (pub_number, authors, title, journal, year_val, pages, pub_id))
+            """, (pub_number, authors, title, journal, year_val, pages, email, pub_id))
             updated += c.rowcount
         elif title:
             # Insert new
             logging.warning(f"save_detail: INSERTING new pub: advert_id={advert_id}, number={pub_number}, title={title!r}, year={year_val}")
             c.execute(
-                "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (advert_id, pub_number, authors, title, journal, year_val, pages)
+                "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (advert_id, pub_number, authors, title, journal, year_val, pages, email)
             )
             inserted += c.rowcount
             # Remember newly inserted id so it won't be deleted

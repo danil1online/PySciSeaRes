@@ -42,6 +42,7 @@ from extractors.publications import (
 from extractors.supervisor import (
     extract_supervisor_from_pdf_text,
 )
+from extractors.email_search import find_emails_for_publications
 
 # Re-export for backward compatibility
 __all__ = [
@@ -203,8 +204,8 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
                 if isinstance(authors, list):
                     authors = ", ".join(authors)
                 c.execute(
-                    "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages) VALUES (?,?,?,?,?,?,?)",
-                    (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"])
+                    "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email) VALUES (?,?,?,?,?,?,?,?)",
+                    (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"], "")
                 )
             conn.commit()
             print(f" OK ({len(struct_pubs)} публикаций)", end="")
@@ -212,6 +213,28 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
                 print(f"\n      Раздел: {found_section}")
             if llm_time:
                 print(f"\n      LLM время: {llm_time:.1f}с")
+
+            # Search for emails in publications
+            print("\n    Поиск email авторов...", end="")
+            try:
+                email_results = find_emails_for_publications(struct_pubs)
+                email_count = 0
+                for i, (pub, emails) in enumerate(email_results):
+                    if emails:
+                        email_str = "; ".join(emails)
+                        c.execute(
+                            "UPDATE publications SET email = ? WHERE advert_id = ? AND pub_number = ?",
+                            (email_str, adv_id, i + 1)
+                        )
+                        email_count += 1
+                if email_count:
+                    print(f" OK ({email_count} email)", end="")
+                else:
+                    print(f" (не найдены)", end="")
+                conn.commit()
+            except Exception as e:
+                print(f" Ошибка поиска email: {e}", end="")
+                conn.commit()
 
             # Re-check publication count after extraction
             c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))

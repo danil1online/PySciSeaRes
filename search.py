@@ -144,7 +144,7 @@ def get_advert_detail(advert_id):
         "autoref_path": row[11],
     }
 
-    c.execute("SELECT pub_number, authors, title, journal, year, pages FROM publications WHERE advert_id = ? ORDER BY pub_number", (advert_id,))
+    c.execute("SELECT pub_number, authors, title, journal, year, pages, email FROM publications WHERE advert_id = ? ORDER BY pub_number", (advert_id,))
     advert["publications"] = [
         {
             "pub_number": r[0],
@@ -153,6 +153,7 @@ def get_advert_detail(advert_id):
             "journal": r[3],
             "year": r[4],
             "pages": r[5],
+            "email": r[6] if len(r) > 6 else "",
         }
         for r in c.fetchall()
     ]

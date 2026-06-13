@@ -672,6 +672,23 @@ main {
     gap: 12px;
 }
 
+.author-emails {
+    margin-top: 8px;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.email-link {
+    color: var(--primary);
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+.email-link:hover {
+    text-decoration: underline;
+    color: var(--primary-hover);
+}
+
 .detail-section {
     background: var(--surface);
     border: 1px solid var(--border);

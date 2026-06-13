@@ -5,8 +5,26 @@
     {% set back_url = url_for('search_page') + '?' + back_qs if back_qs else url_for('search_page') %}
     <a href="{{ back_url }}" class="back-link">← Назад к поиску</a>
 
+    {% set all_emails %}
+        {% for pub in (advert.publications or []) %}
+            {% if pub.email %}
+                {% for em in pub.email.split('; ') %}
+                    {{ em.strip() }}
+                {% endfor %}
+            {% endif %}
+        {% endfor %}
+    {% endset %}
+    {% set unique_emails = all_emails.split() | unique | list %}
+
     <div class="detail-header">
         <h1>{{ advert.fio or 'Неизвестно' }}</h1>
+        {% if unique_emails %}
+        <div class="author-emails">
+            {% for em in unique_emails %}
+                <a href="mailto:{{ em }}" class="email-link">{{ em }}</a>{% if not loop.last %} | {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
         <span class="pub-badge-large">{{ (advert.publications or [])|length }} публикаций</span>
     </div>
 
@@ -145,8 +163,10 @@
                     <span class="pub-journal-view">{{ pub.journal or '' }}</span>
                     <input type="number" class="pub-year" value="{{ pub.year or '' }}" placeholder="Год" min="1900" max="2099" style="display:none;">
                     <span class="pub-year-view">{{ pub.year or '' }}</span>
-                    <input type="text" class="pub-pages" value="{{ pub.pages or '' }}" placeholder="Страницы (напр. 123-130)" style="display:none;">
+                 <input type="text" class="pub-pages" value="{{ pub.pages or '' }}" placeholder="Страницы (напр. 123-130)" style="display:none;">
                     <span class="pub-pages-view">{{ pub.pages or '' }}</span>
+                    <input type="text" class="pub-email" value="{{ pub.email or '' }}" placeholder="Email автора" style="display:none;">
+                    <span class="pub-email-view">{{ pub.email or '' }}</span>
                 </div>
                 <div class="pub-actions">
                     <button class="edit-btn btn btn-sm btn-secondary pub-edit-btn" data-pub-id="{{ pub.id }}">✎</button>
@@ -189,6 +209,7 @@ function syncPubViews(item) {
         ['.pub-journal', '.pub-journal-view'],
         ['.pub-year', '.pub-year-view'],
         ['.pub-pages', '.pub-pages-view'],
+        ['.pub-email', '.pub-email-view'],
     ];
     pairs.forEach(function(pair) {
         const input = item.querySelector(pair[0]);
@@ -224,6 +245,8 @@ function addPublication() {
             <span class="pub-year-view"></span>
             <input type="text" class="pub-pages" value="" placeholder="Страницы (напр. 123-130)">
             <span class="pub-pages-view"></span>
+            <input type="text" class="pub-email" value="" placeholder="Email автора">
+            <span class="pub-email-view"></span>
         </div>
         <div class="pub-actions">
             <button class="edit-btn btn btn-sm btn-secondary pub-edit-btn" style="display:none;">✎</button>
@@ -248,8 +271,8 @@ function addPublication() {
 }
 
 function toggleRowEdit(item) {
-    const inputs = item.querySelectorAll('.pub-authors, .pub-title, .pub-journal, .pub-year, .pub-pages');
-    const views = item.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view');
+    const inputs = item.querySelectorAll('.pub-authors, .pub-title, .pub-journal, .pub-year, .pub-pages, .pub-email');
+    const views = item.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view, .pub-email-view');
     const editBtn = item.querySelector('.pub-edit-btn');
     const deleteBtn = item.querySelector('.pub-delete-btn');
     const saveBtn = item.querySelector('.save-pub-btn');
@@ -265,8 +288,8 @@ function toggleRowEdit(item) {
 
 function toggleRowSave(item) {
     syncPubViews(item);
-    const inputs = item.querySelectorAll('.pub-authors, .pub-title, .pub-journal, .pub-year, .pub-pages');
-    const views = item.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view');
+    const inputs = item.querySelectorAll('.pub-authors, .pub-title, .pub-journal, .pub-year, .pub-pages, .pub-email');
+    const views = item.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view, .pub-email-view');
     const editBtn = item.querySelector('.pub-edit-btn');
     const deleteBtn = item.querySelector('.pub-delete-btn');
     const saveBtn = item.querySelector('.save-pub-btn');
@@ -281,8 +304,8 @@ function toggleRowSave(item) {
 }
 
 function toggleRowCancel(item) {
-    const inputs = item.querySelectorAll('.pub-authors, .pub-title, .pub-journal, .pub-year, .pub-pages');
-    const views = item.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view');
+    const inputs = item.querySelectorAll('.pub-authors, .pub-title, .pub-journal, .pub-year, .pub-pages, .pub-email');
+    const views = item.querySelectorAll('.pub-authors-view, .pub-title-view, .pub-journal-view, .pub-year-view, .pub-pages-view, .pub-email-view');
     const editBtn = item.querySelector('.pub-edit-btn');
     const deleteBtn = item.querySelector('.pub-delete-btn');
     const saveBtn = item.querySelector('.save-pub-btn');
@@ -333,6 +356,7 @@ function saveAll() {
             journal: (item.querySelector('.pub-journal') || {}).value || '',
             year: yearNum,
             pages: (item.querySelector('.pub-pages') || {}).value || '',
+            email: (item.querySelector('.pub-email') || {}).value || '',
         };
         pubs.push(pub);
     });

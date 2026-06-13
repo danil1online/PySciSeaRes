@@ -43,6 +43,12 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # column already exists
 
+    # Migration: add email column to publications if it doesn't exist (for existing DBs)
+    try:
+        c.execute("ALTER TABLE publications ADD COLUMN email TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
     c.execute("""CREATE TABLE IF NOT EXISTS publications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         advert_id TEXT NOT NULL,
@@ -52,6 +58,7 @@ def init_db():
         journal TEXT,
         year INTEGER,
         pages TEXT,
+        email TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (advert_id) REFERENCES adverts(id) ON DELETE CASCADE
     )""")
