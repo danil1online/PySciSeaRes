@@ -21,6 +21,25 @@ from config import SESSION_SECRET_KEY, AUTOREFS_DIR
 app = Flask(__name__)
 app.secret_key = SESSION_SECRET_KEY
 
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "user" not in session:
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "user" not in session or not session["user"].get("is_admin"):
+            abort(403)
+        return f(*args, **kwargs)
+    return decorated
+
+
 # ======================== API DOCUMENTATION ========================
 
 API_DOCS = {
@@ -116,24 +135,6 @@ def docs():
 @app.context_processor
 def inject_year():
     return {"now_year": datetime.now().year}
-
-
-def login_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if "user" not in session:
-            return redirect(url_for("login"))
-        return f(*args, **kwargs)
-    return decorated
-
-
-def admin_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if "user" not in session or not session["user"].get("is_admin"):
-            abort(403)
-        return f(*args, **kwargs)
-    return decorated
 
 
 # ======================== AUTH ========================
