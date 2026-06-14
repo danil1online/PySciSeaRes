@@ -90,7 +90,7 @@ def _extract_publications(conn, adv_id, pdf_path, counters):
             if isinstance(authors, list):
                 authors = ", ".join(authors)
             c.execute(
-                "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email, source_url, source_name) VALUES (?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email, source_url, source_name) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"], "", "", "")
             )
         conn.commit()
