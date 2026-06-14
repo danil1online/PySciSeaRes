@@ -2,7 +2,7 @@
 import os
 import sqlite3
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "vak.db")
+DB_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "instance", "vak.db"))
 
 
 def get_db():
@@ -34,6 +34,7 @@ def init_db():
         autoref_path TEXT,
         autoref_pdf_url TEXT,
         downloaded INTEGER DEFAULT 0,
+        email_search_attempts INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
@@ -57,6 +58,12 @@ def init_db():
 
     try:
         c.execute("ALTER TABLE publications ADD COLUMN source_name TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
+    # Migration: add email_search_attempts column to adverts if it doesn't exist
+    try:
+        c.execute("ALTER TABLE adverts ADD COLUMN email_search_attempts INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass  # column already exists
 

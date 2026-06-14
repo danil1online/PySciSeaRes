@@ -43,6 +43,7 @@ from extractors.supervisor import (
     extract_supervisor_from_pdf_text,
 )
 from extractors.email_search import find_emails_for_publications
+from search import needs_email_search, get_email_search_attempts, increment_email_search_attempts
 
 # Re-export for backward compatibility
 __all__ = [
@@ -190,6 +191,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     if need_reextract:
         print("\n    Извлечение данных из PDF...", end="")
         counters["extracted"] += 1
+        pdf_full_text = None
         try:
             pdf_full_text = _read_pdf_full(save_path_real)
 
@@ -204,8 +206,8 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
                 if isinstance(authors, list):
                     authors = ", ".join(authors)
                 c.execute(
-                    "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email) VALUES (?,?,?,?,?,?,?,?)",
-                    (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"], "")
+                    "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email, source_url, source_name) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"], "", "", "")
                 )
             conn.commit()
             print(f" OK ({len(struct_pubs)} публикаций)", end="")
@@ -213,39 +215,6 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
                 print(f"\n      Раздел: {found_section}")
             if llm_time:
                 print(f"\n      LLM время: {llm_time:.1f}с")
-
-            # Search for emails in publications
-            print("\n    Поиск email авторов...", end="")
-            try:
-                email_results = find_emails_for_publications(struct_pubs, pdf_full_text)
-                email_count = 0
-                source_count = 0
-                for i, (pub, emails, source) in enumerate(email_results):
-                    if emails:
-                        email_str = "; ".join(emails)
-                        source_url = source.get('url', '') if source else ''
-                        source_name = source.get('source_name', '') if source else ''
-                        c.execute(
-                            "UPDATE publications SET email = ?, source_url = ?, source_name = ? WHERE advert_id = ? AND pub_number = ?",
-                            (email_str, source_url, source_name, adv_id, i + 1)
-                        )
-                        email_count += 1
-                    elif source:
-                        source_url = source.get('url', '')
-                        source_name = source.get('source_name', '')
-                        c.execute(
-                            "UPDATE publications SET source_url = ?, source_name = ? WHERE advert_id = ? AND pub_number = ?",
-                            (source_url, source_name, adv_id, i + 1)
-                        )
-                        source_count += 1
-                if email_count:
-                    print(f" OK ({email_count} email, {source_count} источников)", end="")
-                else:
-                    print(f" (не найдены)", end="")
-                conn.commit()
-            except Exception as e:
-                print(f" Ошибка поиска email: {e}", end="")
-                conn.commit()
 
             # Re-check publication count after extraction
             c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))
@@ -255,10 +224,75 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
             else:
                 print(f"\n    Внимание: извлечено всего {new_count} публикаций (было {existing_count})")
 
-            del pdf_full_text
-
         except Exception as e:
             print(f" Ошибка извлечения: {e}")
+        finally:
+            if pdf_full_text:
+                del pdf_full_text
+
+    # --- Email search (separate pass, runs after publications are ready) ---
+    # Only run if we have publications in DB
+    c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))
+    pub_count = c.fetchone()[0]
+    if pub_count > 0:
+        # Check if we should skip email search
+        attempts = get_email_search_attempts(adv_id)
+        if attempts >= 2:
+            print("\n    Поиск email: пропуск (2 попытки уже выполнено)")
+        else:
+            # Check if any publication needs email search
+            if needs_email_search(adv_id):
+                print("\n    Поиск email авторов...", end="")
+                try:
+                    # Reload publications from DB
+                    c.execute("SELECT pub_number, authors, title, journal, year, pages FROM publications WHERE advert_id = ? ORDER BY pub_number", (adv_id,))
+                    db_pubs = c.fetchall()
+                    struct_pubs = [
+                        {"authors": r[1], "title": r[2], "journal": r[3], "year": r[4], "pages": r[5]}
+                        for r in db_pubs
+                    ]
+
+                    # Reload PDF text if needed
+                    if pdf_full_text is None:
+                        pdf_full_text = _read_pdf_full(save_path_real)
+
+                    email_results = find_emails_for_publications(struct_pubs, pdf_full_text)
+                    email_count = 0
+                    source_count = 0
+                    for i, (pub, emails, source) in enumerate(email_results):
+                        if emails:
+                            email_str = "; ".join(emails)
+                            source_url = source.get('url', '') if source else ''
+                            source_name = source.get('source_name', '') if source else ''
+                            c.execute(
+                                "UPDATE publications SET email = ?, source_url = ?, source_name = ? WHERE advert_id = ? AND pub_number = ?",
+                                (email_str, source_url, source_name, adv_id, i + 1)
+                            )
+                            email_count += 1
+                        elif source:
+                            source_url = source.get('url', '')
+                            source_name = source.get('source_name', '')
+                            c.execute(
+                                "UPDATE publications SET source_url = ?, source_name = ? WHERE advert_id = ? AND pub_number = ?",
+                                (source_url, source_name, adv_id, i + 1)
+                            )
+                            source_count += 1
+                    if email_count:
+                        print(f" OK ({email_count} email, {source_count} источников)", end="")
+                    else:
+                        print(f" (не найдены)", end="")
+                    conn.commit()
+                except Exception as e:
+                    print(f" Ошибка поиска email: {e}", end="")
+                    conn.commit()
+                finally:
+                    if pdf_full_text:
+                        del pdf_full_text
+
+                # Increment counter
+                increment_email_search_attempts(adv_id)
+            else:
+                print("\n    Поиск email: пропуск (все публикации имеют email)")
 
     # Always extract supervisor
     print("    Извлечение руководителя...", end="")

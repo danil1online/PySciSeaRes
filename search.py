@@ -1,7 +1,7 @@
 import sqlite3
 import os
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "vak.db")
+DB_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "vak.db"))
 
 
 def get_db():
@@ -162,6 +162,45 @@ def get_advert_detail(advert_id):
 
     conn.close()
     return advert
+
+
+def needs_email_search(advert_id):
+    """Проверяет, есть ли публикации без email info.
+
+    Возвращает True если хотя бы одна публикация не имеет email или source.
+    """
+    conn = get_db()
+    c = conn.cursor()
+
+    # Check if any publication lacks email info
+    c.execute("""SELECT COUNT(*) FROM publications
+                 WHERE advert_id = ? AND (email IS NULL OR email = ''
+                 OR source_url IS NULL OR source_url = '')""", (advert_id,))
+    count = c.fetchone()[0]
+    conn.close()
+    return count > 0
+
+
+def get_email_search_attempts(advert_id):
+    """Получает текущий счётчик попыток поиска email для объявления."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT email_search_attempts FROM adverts WHERE id = ?", (advert_id,))
+    row = c.fetchone()
+    conn.close()
+    if row and row[0] is not None:
+        return row[0]
+    return 0
+
+
+def increment_email_search_attempts(advert_id):
+    """Увеличивает счётчик попыток поиска email."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""UPDATE adverts SET email_search_attempts = COALESCE(email_search_attempts, 0) + 1
+                 WHERE id = ?""", (advert_id,))
+    conn.commit()
+    conn.close()
 
 
 SPECIALTY_GROUPS = {
