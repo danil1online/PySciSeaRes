@@ -38,7 +38,10 @@ def temp_db():
             org_phone TEXT,
             autoref_url TEXT,
             autoref_path TEXT,
+            autoref_pdf_url TEXT,
             downloaded INTEGER DEFAULT 0,
+            email_search_attempts INTEGER DEFAULT 0,
+            pub_extract_attempts INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS publications (
@@ -50,6 +53,9 @@ def temp_db():
             journal TEXT,
             year INTEGER,
             pages TEXT,
+            email TEXT,
+            source_url TEXT,
+            source_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (advert_id) REFERENCES adverts(id) ON DELETE CASCADE
         )""")

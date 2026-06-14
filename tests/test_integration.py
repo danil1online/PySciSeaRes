@@ -29,6 +29,8 @@ class TestIntegrationSearch:
             council_cipher TEXT, defend_org TEXT, org_address TEXT,
             org_phone TEXT, autoref_url TEXT, autoref_path TEXT,
             autoref_pdf_url TEXT, downloaded INTEGER DEFAULT 0,
+            email_search_attempts INTEGER DEFAULT 0,
+            pub_extract_attempts INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
         c.execute("""CREATE TABLE publications (
@@ -36,6 +38,7 @@ class TestIntegrationSearch:
             advert_id TEXT NOT NULL, pub_number INTEGER NOT NULL,
             authors TEXT, title TEXT, journal TEXT,
             year INTEGER, pages TEXT,
+            email TEXT, source_url TEXT, source_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (advert_id) REFERENCES adverts(id) ON DELETE CASCADE
         )""")
@@ -132,6 +135,8 @@ class TestIntegrationDetail:
             council_cipher TEXT, defend_org TEXT, org_address TEXT,
             org_phone TEXT, autoref_url TEXT, autoref_path TEXT,
             autoref_pdf_url TEXT, downloaded INTEGER DEFAULT 0,
+            email_search_attempts INTEGER DEFAULT 0,
+            pub_extract_attempts INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
         c.execute("""CREATE TABLE publications (
@@ -139,6 +144,7 @@ class TestIntegrationDetail:
             advert_id TEXT NOT NULL, pub_number INTEGER NOT NULL,
             authors TEXT, title TEXT, journal TEXT,
             year INTEGER, pages TEXT,
+            email TEXT, source_url TEXT, source_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (advert_id) REFERENCES adverts(id) ON DELETE CASCADE
         )""")

@@ -67,6 +67,12 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # column already exists
 
+    # Migration: add pub_extract_attempts column to adverts if it doesn't exist
+    try:
+        c.execute("ALTER TABLE adverts ADD COLUMN pub_extract_attempts INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
     c.execute("""CREATE TABLE IF NOT EXISTS publications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         advert_id TEXT NOT NULL,

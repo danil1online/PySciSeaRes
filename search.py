@@ -203,6 +203,44 @@ def increment_email_search_attempts(advert_id):
     conn.close()
 
 
+def get_pub_extract_attempts(advert_id):
+    """Получает текущий счётчик попыток извлечения публикаций для объявления."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT pub_extract_attempts FROM adverts WHERE id = ?", (advert_id,))
+    row = c.fetchone()
+    conn.close()
+    if row and row[0] is not None:
+        return row[0]
+    return 0
+
+
+def increment_pub_extract_attempts(advert_id):
+    """Увеличивает счётчик попыток извлечения публикаций."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""UPDATE adverts SET pub_extract_attempts = COALESCE(pub_extract_attempts, 0) + 1
+                 WHERE id = ?""", (advert_id,))
+    conn.commit()
+    conn.close()
+
+
+def is_new_defense(fio, date_defend):
+    """Проверяет, есть ли в БД защита с таким же ФИО и датой защиты.
+    
+    Возвращает True если защита НОВАЯ (нет записей с таким fio + date_defend).
+    """
+    conn = get_db()
+    c = conn.cursor()
+    if not fio or not date_defend:
+        conn.close()
+        return True
+    c.execute("SELECT COUNT(*) FROM adverts WHERE fio = ? AND date_defend = ?", (fio, date_defend))
+    count = c.fetchone()[0]
+    conn.close()
+    return count == 0
+
+
 SPECIALTY_GROUPS = {
     "1.1": "Математика и механика",
     "1.2": "Компьютерные науки и информатика",

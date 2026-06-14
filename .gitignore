@@ -7,9 +7,17 @@ __pycache__/
 env/
 .venv/
 
-# Flask
+# Database
 instance/
 *.db
+*.sqlite
+*.sqlite3
+
+# Downloaded PDFs (autoreferats)
+autorefs/
+
+# LLM response cache
+llm_responses/
 
 # IDE
 .idea/
@@ -25,3 +33,17 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+*.lnk
+*:Zone.Identifier
+
+# Accidental debug/artifact files
+*.pdf
+[PDF *
+<sqlite3.Connection object at *>
+
+# Results dumps (temporary)
+email_search_result.json
+debug_*.json
+
+# Environment variables
+.env

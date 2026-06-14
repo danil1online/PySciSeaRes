@@ -43,7 +43,13 @@ from extractors.supervisor import (
     extract_supervisor_from_pdf_text,
 )
 from extractors.email_search import find_emails_for_publications
-from search import needs_email_search, get_email_search_attempts, increment_email_search_attempts
+from search import (
+    get_email_search_attempts,
+    increment_email_search_attempts,
+    get_pub_extract_attempts,
+    increment_pub_extract_attempts,
+    is_new_defense,
+)
 
 # Re-export for backward compatibility
 __all__ = [
@@ -55,10 +61,143 @@ __all__ = [
 ]
 
 
-def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids):
-    """Обрабатывает одно объявление: проверка, скачивание, извлечение.
+def _extract_publications(conn, adv_id, pdf_path, counters):
+    """Извлекает публикации из автореферата.
 
-    Возвращает True если объявление обработано, False если пропущено/ошибка.
+    Этапы:
+    1. JSON-LLM — отправляем последние ~5 страниц в LLM
+    2. Regex — ищем раздел публикаций, анализируем
+    3. Объединяем результаты, проверяем на дубли по названию
+    4. Записываем в БД
+
+    Возвращает: (количество извлечённых публикаций, True если успешно)
+    """
+    print("\n    Извлечение данных из PDF...", end="")
+    counters["extracted"] += 1
+    pdf_full_text = None
+    try:
+        pdf_full_text = _read_pdf_full(pdf_path)
+
+        # JSON-LLM (последние ~5 страниц)
+        raw_pubs, found_section, llm_time = extract_publications_from_pdf_text(pdf_full_text)
+        struct_pubs = parse_pub_to_json(raw_pubs)
+
+        # Удаляем старые публикации, записываем новые
+        c = conn.cursor()
+        c.execute("DELETE FROM publications WHERE advert_id = ?", (adv_id,))
+        for num, p in enumerate(struct_pubs, 1):
+            authors = p["authors"]
+            if isinstance(authors, list):
+                authors = ", ".join(authors)
+            c.execute(
+                "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email, source_url, source_name) VALUES (?,?,?,?,?,?,?,?,?)",
+                (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"], "", "", "")
+            )
+        conn.commit()
+
+        print(f" OK ({len(struct_pubs)} публикаций)", end="")
+        if found_section:
+            print(f"\n      Раздел: {found_section}")
+        if llm_time:
+            print(f"\n      LLM время: {llm_time:.1f}с")
+
+        return len(struct_pubs), True
+
+    except Exception as e:
+        print(f" Ошибка извлечения: {e}")
+        return 0, False
+    finally:
+        if pdf_full_text:
+            del pdf_full_text
+
+
+def _search_emails(conn, adv_id, pdf_path, counters):
+    """Ищет email-адреса для всех публикаций объявления.
+
+    Для каждой публикации:
+    - Ищем по открытым источникам (Semantic Scholar, Crossref, DOI)
+    - Скачиваем PDF/HTML и извлекаем email (LLM + regex)
+    - Записываем email и ссылку в БД
+
+    Возвращает: (найденные email, источники)
+    """
+    c = conn.cursor()
+    c.execute("SELECT pub_number, authors, title, journal, year, pages FROM publications WHERE advert_id = ? ORDER BY pub_number", (adv_id,))
+    db_pubs = c.fetchall()
+    struct_pubs = [
+        {"authors": r[1], "title": r[2], "journal": r[3], "year": r[4], "pages": r[5]}
+        for r in db_pubs
+    ]
+
+    if not struct_pubs:
+        return
+
+    # Читаем PDF если нужно
+    pdf_full_text = None
+    try:
+        pdf_full_text = _read_pdf_full(pdf_path)
+
+        print("\n    Поиск email авторов...", end="")
+        email_results = find_emails_for_publications(struct_pubs, pdf_full_text)
+        email_count = 0
+        source_count = 0
+
+        for i, (pub, emails, source) in enumerate(email_results):
+            if emails:
+                email_str = "; ".join(emails)
+                source_url = source.get('url', '') if source else ''
+                source_name = source.get('source_name', '') if source else ''
+                c.execute(
+                    "UPDATE publications SET email = ?, source_url = ?, source_name = ? WHERE advert_id = ? AND pub_number = ?",
+                    (email_str, source_url, source_name, adv_id, i + 1)
+                )
+                email_count += 1
+            elif source:
+                source_url = source.get('url', '')
+                source_name = source.get('source_name', '')
+                c.execute(
+                    "UPDATE publications SET source_url = ?, source_name = ? WHERE advert_id = ? AND pub_number = ?",
+                    (source_url, source_name, adv_id, i + 1)
+                )
+                source_count += 1
+
+        conn.commit()
+
+        if email_count:
+            print(f" OK ({email_count} email, {source_count} источников)")
+        else:
+            print(f" (не найдены)")
+
+    except Exception as e:
+        print(f" Ошибка поиска email: {e}")
+        conn.commit()
+    finally:
+        if pdf_full_text:
+            del pdf_full_text
+
+
+def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids):
+    """Обрабатывает одно объявление о защите.
+
+    Логика:
+    1) НОВАЯ защита (ФИО + дата защиты не в БД):
+       - Сохраняем объявление, скачиваем автореферат
+       - Извлекаем публикации (JSON-LLM → regex → merge)
+       - Записываем в БД, отмечаем 1 попытку извлечения
+       - Ищем email-адреса для всех публикаций
+       - Записываем email/ссылки, отмечаем 1 попытку поиска
+
+    2) СУЩЕСТВУЮЩАЯ защита (ФИО + дата защиты уже в БД):
+       - Загружаем имеющиеся данные
+       - Если >= 5 публикаций: проверяем попытки поиска email
+         - >= 2 попыток — пропускаем
+         - 1 попытка, есть email — пропускаем
+         - 1 попытка, нет email — ищем email
+       - Если < 5 публикаций: проверяем попытки извлечения
+         - >= 2 попыток — пропускаем
+         - 0-1 попыток — извлекаем публикации заново
+
+    Возвращает True если обработано, False если пропущено.
     """
     adv_id = advert["id"]
     if adv_id in processed_ids:
@@ -80,8 +219,12 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
         counters["errors"] += 1
         return True
 
-    # Save advert
     c = conn.cursor()
+
+    # Проверяем: новая защита или существующая (по ФИО + дата защиты)
+    new_defense = is_new_defense(fio, date_defend)
+
+    # Сохраняем/обновляем объявление
     try:
         c.execute("""INSERT OR REPLACE INTO adverts (
             id, old_id, date_defend, fio, dissertation_name,
@@ -101,13 +244,12 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
             detail.get("org_address"),
             detail.get("org_phone"),
             detail.get("autoref_site"),
-            None,  # autoref_path — заполняется после скачивания
-            None,  # autoref_pdf_url — resolved PDF URL
+            None,
+            None,
             0,
         ))
         conn.commit()
 
-        # Check if newly inserted or updated
         c.execute("SELECT COUNT(*) FROM adverts WHERE id = ?", (adv_id,))
         if c.fetchone()[0] == 1:
             counters["new"] += 1
@@ -119,185 +261,153 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
         counters["errors"] += 1
         return True
 
-    # Check how many publications already exist for this advert
+    # Проверяем текущее состояние
     c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))
-    existing_count = c.fetchone()[0]
+    pub_count = c.fetchone()[0]
 
-    # Check if autoref PDF is already downloaded
     c.execute("SELECT autoref_path, autoref_pdf_url, downloaded FROM adverts WHERE id = ?", (adv_id,))
     row = c.fetchone()
     autoref_path = row[0] if row else None
     autoref_pdf_url = row[1] if row else None
     autoref_downloaded = row[2] if row else 0
 
-    # --- Decision logic ---
-    need_download = False
-    need_reextract = False
-
-    if existing_count >= 8:
-        print(f"    Пропуск: уже есть {existing_count} публикаций в БД")
-        counters["skipped"] += 1
-        return True
-
-    if existing_count < 5:
-        # Мало публикаций (0-4) — скачиваем заново, извлекаем и заменяем
-        need_download = True
-        need_reextract = True
-    elif existing_count < 8:
-        # 5-7 публикаций — достаточно, пересчитываем только если PDF не скачан
-        if autoref_downloaded == 0 or autoref_path is None:
-            need_download = True
-            # Не извлекаем публикации заново, только скачиваем PDF
-
-    # Download autoref if needed
     autoref_url = detail.get("autoref_site")
-    if need_download:
+
+    # === НОВАЯ ЗАЩИТА ===
+    if new_defense:
+        print("    Статус: новая защита")
+
+        # Скачиваем автореферат
+        if not autoref_url:
+            print("    Нет ссылки на автореферат")
+            counters["errors"] += 1
+            return True
+
         save_path, status, resolved_url = download_autoref(
             autoref_url, fio, date_defend, previous_pdf_url=autoref_pdf_url
         )
         if not save_path:
             print(f"    Автореферат: {status}")
-            if existing_count < 5:
-                counters["errors"] += 1
+            counters["errors"] += 1
             return True
-        save_path_real = save_path
+
         counters["downloaded"] += 1
-    elif autoref_path:
-        save_path_real = autoref_path
-        resolved_url = autoref_pdf_url
+        print(f"    Автореферат: скачан ({os.path.getsize(save_path) // 1024} КБ)")
+
+        # Обновляем путь в БД
+        c.execute("UPDATE adverts SET autoref_path = ?, autoref_pdf_url = ?, downloaded = 1 WHERE id = ?",
+                  (save_path, resolved_url, adv_id))
+        conn.commit()
+
+        # Извлекаем specialty из PDF
+        pdf_cipher, pdf_name = extract_specialty_from_pdf(save_path)
+        if pdf_name and not spec_name:
+            c.execute("UPDATE adverts SET specialty_text = ? WHERE id = ?",
+                      (pdf_name, adv_id))
+            print(f"\n    Specialty из PDF: {pdf_cipher} - {pdf_name}")
+        conn.commit()
+
+        # Извлекаем публикации (JSON-LLM → regex → merge)
+        extract_count, extract_ok = _extract_publications(conn, adv_id, save_path, counters)
+        if extract_ok:
+            increment_pub_extract_attempts(adv_id)
+            print(f"\n    Попытка извлечения #1 завершена")
+
+        # Ищем email-адреса
+        if pub_count + extract_count > 0:
+            increment_email_search_attempts(adv_id)
+            _search_emails(conn, adv_id, save_path, counters)
+
+    # === СУЩЕСТВУЮЩАЯ ЗАЩИТА ===
     else:
-        print("    Нет ссылки на автореферат")
-        return True
+        print("    Статус: существующая защита")
 
-    size_kb = os.path.getsize(save_path_real) // 1024
-    if need_download:
-        print(f"    Автореферат: скачан ({size_kb} КБ)", end="")
-    else:
-        print(f"    Автореферат: найден ({size_kb} КБ)", end="")
+        # Проверяем, скачан ли автореферат
+        if not autoref_path:
+            # Автореферат не скачан — скачиваем
+            if not autoref_url:
+                print("    Нет ссылки на автореферат")
+                counters["errors"] += 1
+                return True
 
-    # Update path and resolved URL in DB
-    c.execute("UPDATE adverts SET autoref_path = ?, autoref_pdf_url = ?, downloaded = 1 WHERE id = ?",
-              (save_path_real, resolved_url, adv_id))
-
-    # Extract specialty from PDF first page
-    pdf_cipher, pdf_name = extract_specialty_from_pdf(save_path_real)
-    if pdf_name and not spec_name:
-        c.execute("UPDATE adverts SET specialty_text = ? WHERE id = ?",
-                  (pdf_name, adv_id))
-        print(f"\n    Specialty из PDF: {pdf_cipher} - {pdf_name}", end="")
-    conn.commit()
-
-    # --- Extract publications if needed (only when count < 5) ---
-    if need_reextract:
-        print("\n    Извлечение данных из PDF...", end="")
-        counters["extracted"] += 1
-        pdf_full_text = None
-        try:
-            pdf_full_text = _read_pdf_full(save_path_real)
-
-            # Extract publications (using extracted text)
-            raw_pubs, found_section, llm_time = extract_publications_from_pdf_text(
-                pdf_full_text
+            save_path, status, resolved_url = download_autoref(
+                autoref_url, fio, date_defend, previous_pdf_url=autoref_pdf_url
             )
-            struct_pubs = parse_pub_to_json(raw_pubs)
-            c.execute("DELETE FROM publications WHERE advert_id = ?", (adv_id,))
-            for num, p in enumerate(struct_pubs, 1):
-                authors = p["authors"]
-                if isinstance(authors, list):
-                    authors = ", ".join(authors)
-                c.execute(
-                    "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email, source_url, source_name) VALUES (?,?,?,?,?,?,?,?,?)",
-                    (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"], "", "", "")
-                )
+            if not save_path:
+                print(f"    Автореферат: {status}")
+                counters["errors"] += 1
+                return True
+
+            counters["downloaded"] += 1
+            print(f"    Автореферат: скачан ({os.path.getsize(save_path) // 1024} КБ)")
+
+            c.execute("UPDATE adverts SET autoref_path = ?, autoref_pdf_url = ?, downloaded = 1 WHERE id = ?",
+                      (save_path, resolved_url, adv_id))
             conn.commit()
-            print(f" OK ({len(struct_pubs)} публикаций)", end="")
-            if found_section:
-                print(f"\n      Раздел: {found_section}")
-            if llm_time:
-                print(f"\n      LLM время: {llm_time:.1f}с")
-
-            # Re-check publication count after extraction
-            c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))
-            new_count = c.fetchone()[0]
-            if new_count >= 5:
-                print(f"\n    Восстановлено: было {existing_count}, стало {new_count} публикаций")
-            else:
-                print(f"\n    Внимание: извлечено всего {new_count} публикаций (было {existing_count})")
-
-        except Exception as e:
-            print(f" Ошибка извлечения: {e}")
-        finally:
-            if pdf_full_text:
-                del pdf_full_text
-
-    # --- Email search (separate pass, runs after publications are ready) ---
-    # Only run if we have publications in DB
-    c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))
-    pub_count = c.fetchone()[0]
-    if pub_count > 0:
-        # One attempt per daily_sync.py run — next attempt only on next run
-        attempts = get_email_search_attempts(adv_id)
-        if attempts > 0:
-            print("\n    Поиск email: пропуск (уже была попытка)")
         else:
-            # Check if any publication needs email search
-            if needs_email_search(adv_id):
-                print("\n    Поиск email авторов...", end="")
-                try:
-                    # Reload publications from DB
-                    c.execute("SELECT pub_number, authors, title, journal, year, pages FROM publications WHERE advert_id = ? ORDER BY pub_number", (adv_id,))
-                    db_pubs = c.fetchall()
-                    struct_pubs = [
-                        {"authors": r[1], "title": r[2], "journal": r[3], "year": r[4], "pages": r[5]}
-                        for r in db_pubs
-                    ]
+            save_path = autoref_path
+            resolved_url = autoref_pdf_url
+            print(f"    Автореферат: найден ({os.path.getsize(save_path) // 1024} КБ)")
 
-                    # Reload PDF text if needed
-                    if pdf_full_text is None:
-                        pdf_full_text = _read_pdf_full(save_path_real)
+        # Обновляем specialty из PDF
+        pdf_cipher, pdf_name = extract_specialty_from_pdf(save_path)
+        if pdf_name:
+            c.execute("UPDATE adverts SET specialty_text = ? WHERE id = ?",
+                      (pdf_name, adv_id))
+            conn.commit()
 
-                    email_results = find_emails_for_publications(struct_pubs, pdf_full_text)
-                    email_count = 0
-                    source_count = 0
-                    for i, (pub, emails, source) in enumerate(email_results):
-                        if emails:
-                            email_str = "; ".join(emails)
-                            source_url = source.get('url', '') if source else ''
-                            source_name = source.get('source_name', '') if source else ''
-                            c.execute(
-                                "UPDATE publications SET email = ?, source_url = ?, source_name = ? WHERE advert_id = ? AND pub_number = ?",
-                                (email_str, source_url, source_name, adv_id, i + 1)
-                            )
-                            email_count += 1
-                        elif source:
-                            source_url = source.get('url', '')
-                            source_name = source.get('source_name', '')
-                            c.execute(
-                                "UPDATE publications SET source_url = ?, source_name = ? WHERE advert_id = ? AND pub_number = ?",
-                                (source_url, source_name, adv_id, i + 1)
-                            )
-                            source_count += 1
-                    if email_count:
-                        print(f" OK ({email_count} email, {source_count} источников)", end="")
-                    else:
-                        print(f" (не найдены)", end="")
-                    conn.commit()
-                except Exception as e:
-                    print(f" Ошибка поиска email: {e}", end="")
-                    conn.commit()
-                finally:
-                    if pdf_full_text:
-                        del pdf_full_text
+        # === ЛОГИКА ДЛЯ СУЩЕСТВУЮЩЕЙ ЗАЩИТЫ ===
+        if pub_count >= 5:
+            # >= 5 публикаций — проверяем поиск email
+            email_attempts = get_email_search_attempts(adv_id)
 
-                # Increment counter — next attempt only on next daily_sync run
+            if email_attempts >= 2:
+                print(f"    Пропуск: {email_attempts} попыток поиска email (лимит)")
+                counters["skipped"] += 1
+                return True
+
+            if email_attempts == 1:
+                # Была 1 попытка — проверяем, есть ли хоть один email
+                c.execute("""SELECT COUNT(*) FROM publications
+                             WHERE advert_id = ? AND (email IS NOT NULL AND email != '')""",
+                          (adv_id,))
+                has_email = c.fetchone()[0] > 0
+
+                if has_email:
+                    print(f"    Пропуск: email уже найдены")
+                    counters["skipped"] += 1
+                    return True
+
+                # Нет email — запускаем поиск
                 increment_email_search_attempts(adv_id)
-            else:
-                print("\n    Поиск email: пропуск (все публикации имеют email)")
+                _search_emails(conn, adv_id, save_path, counters)
 
-    # Always extract supervisor
+            else:
+                # 0 попыток — ищем email
+                increment_email_search_attempts(adv_id)
+                _search_emails(conn, adv_id, save_path, counters)
+
+        else:
+            # < 5 публикаций — проверяем попытки извлечения
+            extract_attempts = get_pub_extract_attempts(adv_id)
+
+            if extract_attempts >= 2:
+                print(f"    Пропуск: {extract_attempts} попыток извлечения (лимит)")
+                counters["skipped"] += 1
+                return True
+
+            # Извлекаем публикации заново
+            print(f"\n    Попытка извлечения #{extract_attempts + 1}")
+            extract_count, extract_ok = _extract_publications(conn, adv_id, save_path, counters)
+            if extract_ok:
+                increment_pub_extract_attempts(adv_id)
+                new_pub_count = pub_count + extract_count
+                print(f"\n    Было {pub_count}, стало {new_pub_count} публикаций")
+
+    # === Извлечение руководителя (всегда) ===
     print("    Извлечение руководителя...", end="")
     try:
-        pdf_full_text = _read_pdf_full(save_path_real)
+        pdf_full_text = _read_pdf_full(save_path)
         sup = extract_supervisor_from_pdf_text(pdf_full_text)
         sup_name = sup.get("supervisor_name")
         sup_work = sup.get("supervisor_work")
