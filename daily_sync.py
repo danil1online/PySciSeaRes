@@ -235,10 +235,10 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))
     pub_count = c.fetchone()[0]
     if pub_count > 0:
-        # Check if we should skip email search
+        # One attempt per daily_sync.py run — next attempt only on next run
         attempts = get_email_search_attempts(adv_id)
-        if attempts >= 2:
-            print("\n    Поиск email: пропуск (2 попытки уже выполнено)")
+        if attempts > 0:
+            print("\n    Поиск email: пропуск (уже была попытка)")
         else:
             # Check if any publication needs email search
             if needs_email_search(adv_id):
@@ -289,7 +289,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
                     if pdf_full_text:
                         del pdf_full_text
 
-                # Increment counter
+                # Increment counter — next attempt only on next daily_sync run
                 increment_email_search_attempts(adv_id)
             else:
                 print("\n    Поиск email: пропуск (все публикации имеют email)")
