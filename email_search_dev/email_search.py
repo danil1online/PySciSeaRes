@@ -412,7 +412,7 @@ def _find_source_for_publication(pub, autoref_text=None):
     1. DOI из текста публикации
     2. URL из текста публикации
     3. DOI из текста автореферата
-    4. DuckDuckGo (поиск по полным данным, анализ первых 10 ссылок)
+    4. DuckDuckGo (поиск PDF по полным данным, анализ первых 10 ссылок)
     5. Semantic Scholar
     6. Crossref
     7. DOI resolver
@@ -454,7 +454,7 @@ def _find_source_for_publication(pub, autoref_text=None):
                             'title': pub_title, 'authors': pub_authors, 'doi': doi,
                             'source_name': 'DOI из автореферата'}
 
-    # 4. DuckDuckGo — поиск по полным данным публикации
+    # 4. DuckDuckGo — поиск PDF по полным данным публикации
     ddg_results = _search_duckduckgo(pub, max_results=10)
     if ddg_results:
         for ddg in ddg_results:
@@ -549,6 +549,7 @@ def _fetch_pdf_last_page(pdf_url):
             return None
 
         pdf = pdfplumber.open(io.BytesIO(r.content))
+        num_pages = len(pdf.pages)
         text = pdf.pages[-1].extract_text() or ""
         pdf.close()
         return text
@@ -609,7 +610,7 @@ def _is_editorial_email(email, page_text):
         'contact', 'secretariat', 'sekretariat', 'otdel', 'rej',
         'redaktor', 'publisher', 'journal',
         'vestnik', 'reforma-knd', 'knd', 'red', 'press',
-        'media', 'news', 'edit', 'main', 'org',
+        'media', 'news', 'edit', 'main', 'org', 'office',
         'anna', 'info2', 'red2',
     ]
     if local_part in editorial_prefixes:
