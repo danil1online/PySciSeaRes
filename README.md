@@ -176,6 +176,7 @@ LLM-запрос к первым трём страницам авторефер�
 | **openpyxl** | >=3.1 | Формат .xlsx без зависимостей от Office |
 | **psutil** | >=5.9 | Контроль потребления памяти скрипта синхронизации |
 | **beautifulsoup4** | >=4.12 | Парсинг HTML для поиска PDF-ссылок на веб-страницах |
+| **ddgs** | >=9.14 | DuckDuckGo Search API — поиск публикаций по открытым источникам |
 | **pytest** | >=8.0 | Фреймворк для тестирования (unit-тесты для всех модулей) |
 
 ## Структура проекта
@@ -196,7 +197,7 @@ vak-adverts-list/
 │   └── memory.py           # Управление памятью
 ├── extractors/             # Модули извлечения данных из PDF
 │   ├── cache.py            # Кэширование LLM-ответов (TTL 7 дней)
-│   ├── email_search.py     # Поиск email по открытым источникам (Semantic Scholar, Crossref, DOI)
+│   ├── email_search.py     # Поиск email по открытым источникам (DuckDuckGo, Semantic Scholar, Crossref, DOI, cyberleninka)
 │   ├── publications.py     # Гибридное извлечение (JSON-LLM → Regex → LLM)
 │   └── supervisor.py       # Извлечение данных руководителя (LLM)
 ├── tests/                  # pytest-тесты (112 тестов, 8 файлов)
