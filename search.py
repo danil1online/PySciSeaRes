@@ -10,7 +10,38 @@ def get_db():
 
 
 def search_adverts(specialties=None, date_from=None, date_to=None, query=None,
-                   page=1, per_page=10):
+                   page=1, per_page=10, cluster_id=None):
+    # Resolve cluster specialties if cluster_id is provided
+    cluster_spec_list = None
+    if cluster_id is not None:
+        cluster_spec_list = load_cluster_specialties(cluster_id)
+
+    # Normalize specialty ciphers: ensure they end with a dot (DB format)
+    def normalize_cipher(c):
+        c = c.strip()
+        if not c.endswith('.'):
+            c = c + '.'
+        return c
+
+    # Merge user-selected specialties with cluster specialties
+    # If cluster_id is set, only allow specialties from that cluster
+    effective_specialties = None
+    if cluster_spec_list:
+        cluster_set = set(normalize_cipher(s) for s in cluster_spec_list)
+        if specialties:
+            # Filter user-selected specialties by cluster
+            filtered = [normalize_cipher(s) for s in specialties if normalize_cipher(s) in cluster_set]
+            if filtered:
+                effective_specialties = filtered
+            else:
+                # No specialties selected by user (or none match), use ALL cluster specialties
+                effective_specialties = list(cluster_set)
+        else:
+            # No specialties selected, use ALL cluster specialties
+            effective_specialties = list(cluster_set)
+    elif specialties:
+        effective_specialties = [normalize_cipher(s) for s in specialties]
+
     sql = """
         SELECT a.id, a.fio, a.date_defend, a.dissertation_name,
                a.specialty_cipher, a.specialty_text,
@@ -24,8 +55,8 @@ def search_adverts(specialties=None, date_from=None, date_to=None, query=None,
     """
     params = []
 
-    if specialties:
-        spec_list = [s.strip() for s in specialties if s.strip()]
+    if effective_specialties:
+        spec_list = [s.strip() for s in effective_specialties if s.strip()]
         if spec_list:
             placeholders = ",".join(["?"] * len(spec_list))
             sql += f" AND a.specialty_cipher IN ({placeholders})"
@@ -54,8 +85,8 @@ def search_adverts(specialties=None, date_from=None, date_to=None, query=None,
     """
     count_params = []
 
-    if specialties:
-        spec_list = [s.strip() for s in specialties if s.strip()]
+    if effective_specialties:
+        spec_list = [s.strip() for s in effective_specialties if s.strip()]
         if spec_list:
             placeholders = ",".join(["?"] * len(spec_list))
             count_sql2 += f" AND a.specialty_cipher IN ({placeholders})"

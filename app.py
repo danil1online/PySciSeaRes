@@ -250,17 +250,11 @@ def api_search():
     query = request.args.get("query", "").strip()
     page = int(request.args.get("page", 1))
 
-    # Filter specialties by user cluster (non-admin only)
+    # Pass cluster_id to search_adverts for DB-level filtering
     user = session.get("user", {})
+    cluster_id = None
     if not user.get("is_admin"):
         cluster_id = user.get("cluster_id")
-        if cluster_id is not None:
-            from search import load_cluster_specialties
-            cluster_specs = load_cluster_specialties(cluster_id)
-            if cluster_specs:
-                # Only keep specialties that belong to the user's cluster
-                cluster_set = set(cluster_specs)
-                specialties = [s for s in specialties if s in cluster_set]
 
     from config import RESULTS_PER_PAGE
     result = search_adverts(
@@ -270,6 +264,7 @@ def api_search():
         query=query if query else None,
         page=page,
         per_page=RESULTS_PER_PAGE,
+        cluster_id=cluster_id,
     )
     return jsonify(result)
 
@@ -282,6 +277,12 @@ def export_excel():
     date_to = request.args.get("date_to", "").strip()
     query = request.args.get("query", "").strip()
 
+    # Cluster filtering for non-admin users
+    user = session.get("user", {})
+    cluster_id = None
+    if not user.get("is_admin"):
+        cluster_id = user.get("cluster_id")
+
     # Get all results (no pagination for export)
     result = search_adverts(
         specialties=specialties or None,
@@ -290,6 +291,7 @@ def export_excel():
         query=query if query else None,
         page=1,
         per_page=1000,
+        cluster_id=cluster_id,
     )
 
     wb = openpyxl.Workbook()
