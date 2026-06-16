@@ -12,8 +12,8 @@ from flask import (
 from urllib.parse import urlencode
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from auth import init_users, login as auth_login, create_user, delete_user, get_all_users
-from search import search_adverts, get_advert_detail, get_all_specialties, get_db
+from auth import init_users, login as auth_login, create_user, delete_user, get_all_users, create_user_with_cluster
+from search import search_adverts, get_advert_detail, get_all_specialties, get_db, load_cluster_specialties, get_cluster_info
 from daily_sync import init_db
 from qa import process_question
 from config import SESSION_SECRET_KEY, AUTOREFS_DIR
@@ -157,6 +157,71 @@ def login():
     return render_template("login.html")
 
 
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    clusters = load_cluster_specialties()
+    cluster_options = []
+    for cid in sorted(clusters.keys()):
+        info = clusters[cid]
+        cluster_options.append((cid, info["dept_name"]))
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        password_confirm = request.form.get("password_confirm", "")
+        cluster_id = request.form.get("cluster_id", "")
+
+        errors = []
+
+        # Validate username
+        import re
+        if not username:
+            errors.append("Логин не может быть пустым")
+        elif not re.match(r'^[a-zA-Z0-9_]+$', username):
+            errors.append("Логин должен содержать только английские буквы, цифры и символ подчёркивания")
+        elif len(username) < 3:
+            errors.append("Логин должен содержать минимум 3 символа")
+        elif len(username) > 50:
+            errors.append("Логин должен содержать максимум 50 символов")
+
+        # Validate password
+        if not password:
+            errors.append("Пароль не может быть пустым")
+        elif len(password) < 6:
+            errors.append("Пароль должен содержать минимум 6 символов")
+        elif not re.search(r'[a-zA-Z]', password):
+            errors.append("Пароль должен содержать хотя бы одну английскую букву")
+        elif not re.search(r'[0-9]', password):
+            errors.append("Пароль должен содержать хотя бы одну цифру")
+
+        # Validate password confirmation
+        if password != password_confirm:
+            errors.append("Пароли не совпадают")
+
+        # Validate cluster
+        if not cluster_id:
+            errors.append("Выберите кластер")
+        else:
+            try:
+                cluster_id = int(cluster_id)
+                if cluster_id not in clusters:
+                    errors.append("Неверный кластер")
+            except ValueError:
+                errors.append("Неверный кластер")
+
+        if errors:
+            for error in errors:
+                flash(error, "error")
+        else:
+            if create_user_with_cluster(username, password, is_admin=False, cluster_id=cluster_id):
+                flash("Регистрация успешна! Теперь вы можете войти.", "success")
+                return redirect(url_for("login"))
+            else:
+                flash("Пользователь с таким логином уже существует", "error")
+
+    return render_template("register.html", cluster_options=cluster_options)
+
+
 @app.route("/logout")
 def logout():
     session.pop("user", None)
@@ -169,8 +234,11 @@ def logout():
 @login_required
 def search_page():
     specialties = get_all_specialties()
+    user = session.get("user", {})
     from config import MAX_SPECIALTIES
-    return render_template("search.html", specialties=specialties, adverts=[], page=1, total=0, total_pages=0, MAX_SPECS=MAX_SPECIALTIES)
+    clusters = load_cluster_specialties()
+    cluster_names = {cid: info["dept_name"] for cid, info in clusters.items()}
+    return render_template("search.html", specialties=specialties, adverts=[], page=1, total=0, total_pages=0, MAX_SPECS=MAX_SPECIALTIES, user=user, cluster_names=cluster_names)
 
 
 @app.route("/api/search")
@@ -181,6 +249,18 @@ def api_search():
     date_to = request.args.get("date_to", "").strip()
     query = request.args.get("query", "").strip()
     page = int(request.args.get("page", 1))
+
+    # Filter specialties by user cluster (non-admin only)
+    user = session.get("user", {})
+    if not user.get("is_admin"):
+        cluster_id = user.get("cluster_id")
+        if cluster_id is not None:
+            from search import load_cluster_specialties
+            cluster_specs = load_cluster_specialties(cluster_id)
+            if cluster_specs:
+                # Only keep specialties that belong to the user's cluster
+                cluster_set = set(cluster_specs)
+                specialties = [s for s in specialties if s in cluster_set]
 
     from config import RESULTS_PER_PAGE
     result = search_adverts(
@@ -430,7 +510,9 @@ def api_qa():
 @admin_required
 def admin_page():
     users = get_all_users()
-    return render_template("admin.html", users=users)
+    clusters = load_cluster_specialties()
+    cluster_options = [(cid, info["dept_name"]) for cid, info in sorted(clusters.items())]
+    return render_template("admin.html", users=users, cluster_options=cluster_options)
 
 
 @app.route("/admin/create", methods=["POST"])
@@ -439,12 +521,20 @@ def admin_create_user():
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "")
     is_admin = request.form.get("is_admin") == "on"
+    cluster_id_str = request.form.get("cluster_id", "").strip()
+
+    cluster_id = None
+    if cluster_id_str:
+        try:
+            cluster_id = int(cluster_id_str)
+        except ValueError:
+            pass
 
     if not username or not password:
         flash("Заполните все поля", "error")
         return redirect(url_for("admin_page"))
 
-    if create_user(username, password, is_admin):
+    if create_user_with_cluster(username, password, is_admin=is_admin, cluster_id=cluster_id):
         flash(f"Пользователь {username} создан", "success")
     else:
         flash(f"Пользователь {username} уже существует", "error")

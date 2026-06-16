@@ -16,7 +16,7 @@
                 {% if session.get('user', {}).get('is_admin') %}
                 <a href="{{ url_for('admin_page') }}">Админ</a>
                 {% endif %}
-                <span class="nav-user">{{ session.get('user', {}).get('username', 'Гость') }}</span>
+                <span class="nav-user">{{ session.get('user', {}).get('username', 'Гость') }}{% if session.get('user', {}).get('is_admin') %} <span style="color: #f59e0b; font-size: 0.8rem;">(админ)</span>{% endif %}</span>
                 <a href="{{ url_for('logout') }}">Выход</a>
             </div>
         </div>

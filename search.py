@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import re
 
 DB_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "vak.db"))
 
@@ -320,3 +321,50 @@ def get_all_specialties():
                 "specialties": group_specs,
             })
     return groups
+
+
+# ======================== CLUSTER SUPPORT ========================
+
+def load_cluster_specialties(cluster_id=None):
+    """Загружает специальности, относящиеся к кластеру.
+    
+    Если cluster_id=None, возвращает словарь всех кластеров.
+    Если cluster_id=int, возвращает список шифров специальностей для этого кластера.
+    """
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dep-clust-new.csv")
+    if not os.path.exists(csv_path):
+        return {} if cluster_id is None else []
+
+    all_clusters = {}
+    with open(csv_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            # Формат: "ID, Название кафедры, 1.1.1. - Название, 1.1.2. - Название, ..."
+            parts = line.split(", ", 2)
+            if len(parts) < 2:
+                continue
+            cid = int(parts[0])
+            rest = parts[2] if len(parts) > 2 else ""
+
+            # Извлекаем шифры специальностей (формат: 1.1.1. - Название)
+            specs = re.findall(r'(\d+\.\d+\.\d+)\.\s+-\s+', rest)
+            all_clusters[cid] = {
+                "dept_name": parts[1],
+                "specialty_ciphers": sorted(set(specs)),
+            }
+
+    if cluster_id is not None:
+        return all_clusters.get(cluster_id, {}).get("specialty_ciphers", [])
+    return all_clusters
+
+
+def get_cluster_info(cluster_id):
+    """Возвращает название кластера по его ID."""
+    clusters = load_cluster_specialties()
+    info = clusters.get(cluster_id, {})
+    dept_name = info.get("dept_name", "")
+    # Убираем повторяющееся "Кафедра"
+    dept_name = re.sub(r'Кафедра\s+', 'Кафедра ', dept_name) if dept_name else ""
+    return dept_name

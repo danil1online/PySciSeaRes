@@ -17,9 +17,17 @@ def init_users():
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         is_admin INTEGER DEFAULT 0,
+        cluster_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
     conn.commit()
+
+    # Migrate: add cluster_id column if it doesn't exist
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN cluster_id INTEGER")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
 
     # Create default admin if not exists
     c.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1")
@@ -69,18 +77,48 @@ def delete_user(username):
 def get_all_users():
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY id")
+    c.execute("SELECT id, username, is_admin, cluster_id, created_at FROM users ORDER BY id")
     users = c.fetchall()
     conn.close()
-    return [{"id": u[0], "username": u[1], "is_admin": bool(u[2]), "created_at": u[3]} for u in users]
+    return [{"id": u[0], "username": u[1], "is_admin": bool(u[2]), "cluster_id": u[3], "created_at": u[4]} for u in users]
 
 
 def login(username, password):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT password_hash, is_admin FROM users WHERE username = ?", (username,))
+    c.execute("SELECT password_hash, is_admin, cluster_id FROM users WHERE username = ?", (username,))
     row = c.fetchone()
     conn.close()
     if row and check_password(password, row[0]):
-        return {"username": username, "is_admin": bool(row[1])}
+        return {"username": username, "is_admin": bool(row[1]), "cluster_id": row[2]}
     return None
+
+
+def get_user_by_username(username):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, username, password_hash, is_admin, cluster_id, created_at FROM users WHERE username = ?", (username,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {"id": row[0], "username": row[1], "is_admin": bool(row[3]), "cluster_id": row[4], "created_at": row[5]}
+    return None
+
+
+def create_user_with_cluster(username, password, is_admin=False, cluster_id=None):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        pwd_hash = hash_password(password)
+        c.execute("INSERT INTO users (username, password_hash, is_admin, cluster_id) VALUES (?, ?, ?, ?)",
+                  (username, pwd_hash, 1 if is_admin else 0, cluster_id))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass

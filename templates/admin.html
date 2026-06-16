@@ -15,6 +15,15 @@
                 <label for="password">Пароль</label>
                 <input type="password" id="password" name="password" required>
             </div>
+            <div class="form-group">
+                <label for="cluster_id">Кластер (необязательно)</label>
+                <select id="cluster_id" name="cluster_id">
+                    <option value="">Без ограничения</option>
+                    {% for cid, name in cluster_options %}
+                    <option value="{{ cid }}">{{ cid }}. {{ name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
             <div class="form-group checkbox-group">
                 <label>
                     <input type="checkbox" name="is_admin">
@@ -33,6 +42,7 @@
                 <tr>
                     <th>Логин</th>
                     <th>Роль</th>
+                    <th>Кластер</th>
                     <th>Дата создания</th>
                     <th>Действия</th>
                 </tr>
@@ -46,6 +56,15 @@
                         <span class="badge badge-admin">Админ</span>
                         {% else %}
                         <span class="badge badge-user">Пользователь</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.is_admin %}
+                        <span class="disabled">Все кластеры</span>
+                        {% elif user.cluster_id is not none %}
+                        <span title="{{ cluster_options[user.cluster_id][1] if user.cluster_id < cluster_options|length else '' }}">{{ user.cluster_id }}</span>
+                        {% else %}
+                        <span class="disabled">Все кластеры</span>
                         {% endif %}
                     </td>
                     <td>{{ user.created_at[:10] if user.created_at else '—' }}</td>

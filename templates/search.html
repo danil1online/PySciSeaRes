@@ -3,6 +3,11 @@
 {% block content %}
 <div class="search-page">
     <h1>Поиск диссертаций</h1>
+    {% if user and not user.is_admin and user.cluster_id is not none %}
+    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.9rem; color: #1e40af;">
+        <strong>📌 Ваш кластер:</strong> {{ user.cluster_id }}. {{ cluster_names.get(user.cluster_id, 'Неизвестно') }}
+    </div>
+    {% endif %}
 
     <div class="search-panel">
         <form id="search-form">
