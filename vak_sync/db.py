@@ -11,9 +11,18 @@ def get_db():
 
 
 def init_db():
-    """Инициализирует БД: создаёт таблицы и индексы."""
+    """Инициализирует БД: создаёт таблицы, индексы и пользователей."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
+
+    # Initialize users (creates default admin if not exists)
+    try:
+        from auth import init_users as _init_users
+        _init_users()
+    except Exception:
+        pass  # auth module might not be available in all contexts
+
+    c = conn.cursor()
     c = conn.cursor()
 
     c.execute("""CREATE TABLE IF NOT EXISTS adverts (
@@ -94,8 +103,15 @@ def init_db():
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         is_admin INTEGER DEFAULT 0,
+        cluster_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
+
+    # Migration: add cluster_id column to users if it doesn't exist
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN cluster_id INTEGER")
+    except sqlite3.OperationalError:
+        pass  # column already exists
 
     # Enable WAL mode for better concurrent read performance
     c.execute("PRAGMA journal_mode=WAL")
