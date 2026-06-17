@@ -321,9 +321,11 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     # === СУЩЕСТВУЮЩАЯ ЗАЩИТА ===
     else:
         print("    Статус: существующая защита")
+        autoref_newly_downloaded = False
 
         # Проверяем, скачан ли автореферат
         if not autoref_path:
+            autoref_newly_downloaded = True
             # Автореферат не скачан — скачиваем
             if not autoref_url:
                 print("    Нет ссылки на автореферат")
@@ -357,52 +359,25 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
             conn.commit()
 
         # === ЛОГИКА ДЛЯ СУЩЕСТВУЮЩЕЙ ЗАЩИТЫ ===
-        if pub_count >= 5:
-            # >= 5 публикаций — проверяем поиск email
-            email_attempts = get_email_search_attempts(adv_id)
+        extract_attempts = get_pub_extract_attempts(adv_id)
 
-            if email_attempts >= 2:
-                print(f"    Пропуск: {email_attempts} попыток поиска email (лимит)")
-                counters["skipped"] += 1
-                return True
+        if extract_attempts >= 2:
+            print(f"    Пропуск: {extract_attempts} попыток извлечения (лимит)")
+            counters["skipped"] += 1
+            return True
 
-            if email_attempts == 1:
-                # Была 1 попытка — проверяем, есть ли хоть один email
-                c.execute("""SELECT COUNT(*) FROM publications
-                             WHERE advert_id = ? AND (email IS NOT NULL AND email != '')""",
-                          (adv_id,))
-                has_email = c.fetchone()[0] > 0
+        # Извлекаем публикации заново
+        print(f"\n    Попытка извлечения #{extract_attempts + 1}")
+        extract_count, extract_ok = _extract_publications(conn, adv_id, save_path, counters)
+        if extract_ok:
+            increment_pub_extract_attempts(adv_id)
+            new_pub_count = pub_count + extract_count
+            print(f"\n    Было {pub_count}, стало {new_pub_count} публикаций")
 
-                if has_email:
-                    print(f"    Пропуск: email уже найдены")
-                    counters["skipped"] += 1
-                    return True
-
-                # Нет email — запускаем поиск
+            # Ищем email, если PDF был скачан в этом запуске
+            if autoref_newly_downloaded:
                 increment_email_search_attempts(adv_id)
                 _search_emails(conn, adv_id, save_path, counters)
-
-            else:
-                # 0 попыток — ищем email
-                increment_email_search_attempts(adv_id)
-                _search_emails(conn, adv_id, save_path, counters)
-
-        else:
-            # < 5 публикаций — проверяем попытки извлечения
-            extract_attempts = get_pub_extract_attempts(adv_id)
-
-            if extract_attempts >= 2:
-                print(f"    Пропуск: {extract_attempts} попыток извлечения (лимит)")
-                counters["skipped"] += 1
-                return True
-
-            # Извлекаем публикации заново
-            print(f"\n    Попытка извлечения #{extract_attempts + 1}")
-            extract_count, extract_ok = _extract_publications(conn, adv_id, save_path, counters)
-            if extract_ok:
-                increment_pub_extract_attempts(adv_id)
-                new_pub_count = pub_count + extract_count
-                print(f"\n    Было {pub_count}, стало {new_pub_count} публикаций")
 
     # === Извлечение руководителя (всегда) ===
     print("    Извлечение руководителя...", end="")
