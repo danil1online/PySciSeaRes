@@ -41,12 +41,10 @@ from extractors.publications import (
 )
 from extractors.supervisor import (
     extract_supervisor_from_pdf_text,
-)
+  )
 from extractors.email_search import find_emails_for_publications
 from search import (
-    get_email_search_attempts,
     increment_email_search_attempts,
-    get_pub_extract_attempts,
     increment_pub_extract_attempts,
     is_new_defense,
 )
@@ -359,25 +357,10 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
             conn.commit()
 
         # === ЛОГИКА ДЛЯ СУЩЕСТВУЮЩЕЙ ЗАЩИТЫ ===
-        extract_attempts = get_pub_extract_attempts(adv_id)
-
-        if extract_attempts >= 2:
-            print(f"    Пропуск: {extract_attempts} попыток извлечения (лимит)")
-            counters["skipped"] += 1
-            return True
-
-        # Извлекаем публикации заново
-        print(f"\n    Попытка извлечения #{extract_attempts + 1}")
-        extract_count, extract_ok = _extract_publications(conn, adv_id, save_path, counters)
-        if extract_ok:
-            increment_pub_extract_attempts(adv_id)
-            new_pub_count = pub_count + extract_count
-            print(f"\n    Было {pub_count}, стало {new_pub_count} публикаций")
-
-            # Ищем email, если PDF был скачан в этом запуске
-            if autoref_newly_downloaded:
-                increment_email_search_attempts(adv_id)
-                _search_emails(conn, adv_id, save_path, counters)
+        # Ищем email, если PDF был скачан в этом запуске
+        if autoref_newly_downloaded and pub_count > 0:
+            increment_email_search_attempts(adv_id)
+            _search_emails(conn, adv_id, save_path, counters)
 
     # === Извлечение руководителя (всегда) ===
     print("    Извлечение руководителя...", end="")
