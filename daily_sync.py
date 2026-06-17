@@ -316,14 +316,30 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
             increment_email_search_attempts(adv_id)
             _search_emails(conn, adv_id, save_path, counters)
 
+        # Извлекаем руководителя
+        print("\n    Извлечение руководителя...", end="")
+        try:
+            pdf_full_text = _read_pdf_full(save_path)
+            sup = extract_supervisor_from_pdf_text(pdf_full_text)
+            sup_name = sup.get("supervisor_name")
+            sup_work = sup.get("supervisor_work")
+            c.execute("UPDATE adverts SET supervisor_name = ?, supervisor_work = ? WHERE id = ?",
+                      (sup_name, sup_work, adv_id))
+            conn.commit()
+            if sup_name:
+                print(f" OK ({sup_name})")
+            else:
+                print(" (не найден)")
+            del pdf_full_text
+        except Exception as e:
+            print(f" Ошибка: {e}")
+
     # === СУЩЕСТВУЮЩАЯ ЗАЩИТА ===
     else:
         print("    Статус: существующая защита")
-        autoref_newly_downloaded = False
 
         # Проверяем, скачан ли автореферат
         if not autoref_path:
-            autoref_newly_downloaded = True
             # Автореферат не скачан — скачиваем
             if not autoref_url:
                 print("    Нет ссылки на автореферат")
@@ -344,41 +360,47 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
             c.execute("UPDATE adverts SET autoref_path = ?, autoref_pdf_url = ?, downloaded = 1 WHERE id = ?",
                       (save_path, resolved_url, adv_id))
             conn.commit()
+
+            # Обновляем specialty из PDF
+            pdf_cipher, pdf_name = extract_specialty_from_pdf(save_path)
+            if pdf_name:
+                c.execute("UPDATE adverts SET specialty_text = ? WHERE id = ?",
+                          (pdf_name, adv_id))
+                conn.commit()
+
+            # Извлекаем публикации
+            extract_count, extract_ok = _extract_publications(conn, adv_id, save_path, counters)
+            if extract_ok:
+                increment_pub_extract_attempts(adv_id)
+                print(f"\n    Попытка извлечения #1 завершена")
+
+            # Ищем email
+            if pub_count + extract_count > 0:
+                increment_email_search_attempts(adv_id)
+                _search_emails(conn, adv_id, save_path, counters)
+
+            # Извлекаем руководителя
+            print("\n    Извлечение руководителя...", end="")
+            try:
+                pdf_full_text = _read_pdf_full(save_path)
+                sup = extract_supervisor_from_pdf_text(pdf_full_text)
+                sup_name = sup.get("supervisor_name")
+                sup_work = sup.get("supervisor_work")
+                c.execute("UPDATE adverts SET supervisor_name = ?, supervisor_work = ? WHERE id = ?",
+                          (sup_name, sup_work, adv_id))
+                conn.commit()
+                if sup_name:
+                    print(f" OK ({sup_name})")
+                else:
+                    print(" (не найден)")
+                del pdf_full_text
+            except Exception as e:
+                print(f" Ошибка: {e}")
+
         else:
-            save_path = autoref_path
-            resolved_url = autoref_pdf_url
-            print(f"    Автореферат: найден ({os.path.getsize(save_path) // 1024} КБ)")
-
-        # Обновляем specialty из PDF
-        pdf_cipher, pdf_name = extract_specialty_from_pdf(save_path)
-        if pdf_name:
-            c.execute("UPDATE adverts SET specialty_text = ? WHERE id = ?",
-                      (pdf_name, adv_id))
-            conn.commit()
-
-        # === ЛОГИКА ДЛЯ СУЩЕСТВУЮЩЕЙ ЗАЩИТЫ ===
-        # Ищем email, если PDF был скачан в этом запуске
-        if autoref_newly_downloaded and pub_count > 0:
-            increment_email_search_attempts(adv_id)
-            _search_emails(conn, adv_id, save_path, counters)
-
-    # === Извлечение руководителя (всегда) ===
-    print("    Извлечение руководителя...", end="")
-    try:
-        pdf_full_text = _read_pdf_full(save_path)
-        sup = extract_supervisor_from_pdf_text(pdf_full_text)
-        sup_name = sup.get("supervisor_name")
-        sup_work = sup.get("supervisor_work")
-        c.execute("UPDATE adverts SET supervisor_name = ?, supervisor_work = ? WHERE id = ?",
-                  (sup_name, sup_work, adv_id))
-        conn.commit()
-        if sup_name:
-            print(f" OK ({sup_name})")
-        else:
-            print(" (не найден)")
-        del pdf_full_text
-    except Exception as e:
-        print(f" Ошибка: {e}")
+            print(f"    Автореферат: найден ({os.path.getsize(autoref_path) // 1024} КБ)")
+            counters["skipped"] += 1
+        return True
 
     # Memory check after each advert
     if counters["processed"] % BATCH_SIZE == 0:
