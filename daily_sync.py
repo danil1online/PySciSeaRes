@@ -43,6 +43,20 @@ from search import (
 logger = sync_logger
 
 
+def _print_and_log(msg, level="INFO"):
+    """Выводит сообщение в stdout и в лог."""
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[{ts}] {level}: {msg}")
+    if level == "ERROR":
+        _print_and_log(msg, "ERROR")
+    elif level == "WARNING":
+        _print_and_log(msg, "WARNING")
+    elif level == "DEBUG":
+        _print_and_log(msg, "DEBUG")
+    else:
+        _print_and_log(msg)
+
+
 def _search_publication_url(pub, autoref_text):
     """Ищет URL публикации через DuckDuckGo и научные базы."""
     import requests
@@ -127,13 +141,13 @@ def _verify_publication_urls(conn, adv_id):
         try:
             resp = requests.get(source_url, headers={"User-Agent": user_agent}, timeout=15, allow_redirects=True)
             if resp.status_code != 200:
-                logger.warning(f"Publication {pub_num}: URL returned {resp.status_code}")
+                _print_and_log(f"Publication {pub_num}: URL returned {resp.status_code}", "WARNING")
                 continue
 
             # Check if it's a PDF
             content_type = resp.headers.get("Content-Type", "").lower()
             if "application/pdf" in content_type:
-                logger.debug(f"Publication {pub_num}: PDF source, skipping HTML check")
+                _print_and_log(f"Publication {pub_num}: PDF source, skipping HTML check", "DEBUG")
                 verified_count += 1
                 continue
 
@@ -163,19 +177,19 @@ def _verify_publication_urls(conn, adv_id):
 
             if overlap >= min_overlap:
                 verified_count += 1
-                logger.debug(f"Publication {pub_num}: title match verified")
+                _print_and_log(f"Publication {pub_num}: title match verified", "DEBUG")
             else:
-                logger.warning(f"Publication {pub_num}: title mismatch (pub='{title[:50]}', page='{page_title[:50]}')")
+                _print_and_log(f"Publication {pub_num}: title mismatch (pub='{title[:50]}', page='{page_title[:50]}')", "WARNING")
 
         except Exception as e:
-            logger.error(f"Publication {pub_num}: URL verification error: {e}")
+            _print_and_log(f"Publication {pub_num}: URL verification error: {e}", "ERROR")
 
     return verified_count
 
 
 def _extract_publications(conn, adv_id, pdf_path, counters):
     """Извлекает публикации из автореферата и ищет для них URL."""
-    logger.info("Extracting publications from PDF...")
+    _print_and_log("Extracting publications from PDF...")
     counters["extracted"] += 1
     pdf_full_text = None
     try:
@@ -199,9 +213,9 @@ def _extract_publications(conn, adv_id, pdf_path, counters):
                 url, source_name = _search_publication_url(p, pdf_full_text)
                 if url:
                     urls_found += 1
-                    logger.debug(f"Publication {num}: found URL - {url[:80]}")
+                    _print_and_log(f"Publication {num}: found URL - {url[:80]}", "DEBUG")
             except Exception as e:
-                logger.debug(f"Publication {num}: URL search error - {e}")
+                _print_and_log(f"Publication {num}: URL search error - {e}", "DEBUG")
 
             c.execute(
                 "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email, source_url, source_name) VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -209,19 +223,19 @@ def _extract_publications(conn, adv_id, pdf_path, counters):
             )
         conn.commit()
 
-        logger.info(f"Extracted {len(struct_pubs)} publications (section: {found_section}), {urls_found} URLs found")
+        _print_and_log(f"Extracted {len(struct_pubs)} publications (section: {found_section}), {urls_found} URLs found")
         if llm_time:
-            logger.debug(f"LLM time: {llm_time:.1f}s")
+            _print_and_log(f"LLM time: {llm_time:.1f}s", "DEBUG")
 
         # Verify publication URLs
         if struct_pubs:
             verified = _verify_publication_urls(conn, adv_id)
-            logger.info(f"Publication URL verification: {verified}/{len(struct_pubs)} verified")
+            _print_and_log(f"Publication URL verification: {verified}/{len(struct_pubs)} verified")
 
         return len(struct_pubs), True
 
     except Exception as e:
-        logger.error(f"Extraction error: {e}")
+        _print_and_log(f"Extraction error: {e}", "ERROR")
         return 0, False
     finally:
         if pdf_full_text:
@@ -241,11 +255,11 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     date_defend = advert.get("date_defend", "")
     counters["processed"] += 1
 
-    logger.info(f"[{adv_id[:8]}...] {fio} | {date_defend}")
+    _print_and_log(f"[{adv_id[:8]}...] {fio} | {date_defend}")
 
     detail = get_advert_detail(adv_id)
     if not detail:
-        logger.error("Error getting detail")
+        _print_and_log("Error getting detail", "ERROR")
         counters["errors"] += 1
         return True
 
@@ -288,7 +302,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
             counters["updated"] += 1
 
     except Exception as e:
-        logger.error(f"DB error: {e}")
+        _print_and_log(f"DB error: {e}", "ERROR")
         counters["errors"] += 1
         return True
 
@@ -304,15 +318,15 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     autoref_url = detail.get("autoref_site")
 
     if autoref_path and os.path.exists(autoref_path):
-        logger.info(f"Skipped: existing defense, PDF found ({os.path.getsize(autoref_path) // 1024} KB)")
+        _print_and_log(f"Skipped: existing defense, PDF found ({os.path.getsize(autoref_path) // 1024} KB)")
         counters["skipped"] += 1
         return True
 
     status_label = "new defense" if new_defense else "existing defense"
-    logger.info(f"Status: {status_label}")
+    _print_and_log(f"Status: {status_label}")
 
     if not autoref_url:
-        logger.error("No autoref URL")
+        _print_and_log("No autoref URL", "ERROR")
         counters["errors"] += 1
         return True
 
@@ -320,19 +334,19 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
         autoref_url, fio, date_defend, previous_pdf_url=autoref_pdf_url
     )
     if not save_path:
-        logger.error(f"Autoref: {status}")
+        _print_and_log(f"Autoref: {status}", "ERROR")
         counters["errors"] += 1
         return True
 
     counters["downloaded"] += 1
-    logger.info(f"Autoref downloaded ({os.path.getsize(save_path) // 1024} KB)")
+    _print_and_log(f"Autoref downloaded ({os.path.getsize(save_path) // 1024} KB)")
 
     # Extract city and organization from PDF
     city, org_name = extract_city_and_org(save_path)
     if city:
-        logger.info(f"City extracted: {city}")
+        _print_and_log(f"City extracted: {city}")
     if org_name:
-        logger.info(f"Organization extracted: {org_name}")
+        _print_and_log(f"Organization extracted: {org_name}")
 
     c.execute("UPDATE adverts SET autoref_path = ?, autoref_pdf_url = ?, downloaded = 1, city = ?, organization_name = ? WHERE id = ?",
               (save_path, resolved_url, adv_id, city, org_name))
@@ -342,15 +356,15 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     if pdf_name and not spec_name:
         c.execute("UPDATE adverts SET specialty_text = ? WHERE id = ?",
                   (pdf_name, adv_id))
-        logger.info(f"Specialty from PDF: {pdf_cipher} - {pdf_name}")
+        _print_and_log(f"Specialty from PDF: {pdf_cipher} - {pdf_name}")
     conn.commit()
 
     extract_count, extract_ok = _extract_publications(conn, adv_id, save_path, counters)
     if extract_ok:
         increment_pub_extract_attempts(adv_id)
-        logger.info("Publication extraction attempt #1 completed")
+        _print_and_log("Publication extraction attempt #1 completed")
 
-    logger.info("Extracting supervisor...")
+    _print_and_log("Extracting supervisor...")
     try:
         pdf_full_text = _read_pdf_full(save_path)
         sup = extract_supervisor_from_pdf_text(pdf_full_text)
@@ -360,12 +374,12 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
                   (sup_name, sup_work, adv_id))
         conn.commit()
         if sup_name:
-            logger.info(f"Supervisor: {sup_name}")
+            _print_and_log(f"Supervisor: {sup_name}")
         else:
-            logger.debug("Supervisor not found")
+            _print_and_log("Supervisor not found", "DEBUG")
         del pdf_full_text
     except Exception as e:
-        logger.error(f"Supervisor extraction error: {e}")
+        _print_and_log(f"Supervisor extraction error: {e}", "ERROR")
 
     if counters["processed"] % BATCH_SIZE == 0:
         check_memory()
@@ -379,7 +393,7 @@ def main():
     print(f"Start: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     mem = get_memory_mb()
-    logger.info(f"Start: memory {mem:.0f} MB / limit {MAX_MEMORY_MB} MB")
+    _print_and_log(f"Start: memory {mem:.0f} MB / limit {MAX_MEMORY_MB} MB")
     print("=" * 70)
 
     init_db()
@@ -388,11 +402,11 @@ def main():
     today = datetime.now()
     date_from = (today - timedelta(days=30)).strftime("%Y-%m-%d")
     date_to = (today - timedelta(days=1)).strftime("%Y-%m-%d")
-    logger.info(f"Period: {date_from} to {date_to}")
+    _print_and_log(f"Period: {date_from} to {date_to}")
 
     specs = read_specialties()
     if not specs:
-        logger.error("No specialties to process!")
+        _print_and_log("No specialties to process!", "ERROR")
         conn.close()
         return
 
@@ -409,14 +423,14 @@ def main():
     processed_ids = set()
 
     for spec_idx, (spec_cipher, spec_name) in enumerate(specs):
-        logger.info(f"Specialty {spec_idx + 1}/{len(specs)}: {spec_cipher} — {spec_name}")
+        _print_and_log(f"Specialty {spec_idx + 1}/{len(specs)}: {spec_cipher} — {spec_name}")
         print(f"\n{'='*70}")
         print(f"SPECIALTY {spec_idx + 1}/{len(specs)}: {spec_cipher} — {spec_name}")
         print(f"{'='*70}")
 
         from vak_sync.vak_api import search_adverts
         adverts = search_adverts(spec_cipher, date_from, date_to)
-        logger.info(f"Found: {len(adverts)}")
+        _print_and_log(f"Found: {len(adverts)}")
 
         for advert in adverts:
             try:
@@ -426,7 +440,7 @@ def main():
                 check_memory()
                 raise
 
-        logger.debug("Specialty GC...")
+        _print_and_log("Specialty GC...", "DEBUG")
         check_memory()
 
     print(f"\n{'='*70}")
@@ -438,7 +452,7 @@ def main():
     print(f"  Skipped:         {counters['skipped']}")
     print(f"  Errors:          {counters['errors']}")
     final_mem = get_memory_mb()
-    logger.info(f"Final memory: {final_mem:.0f} MB")
+    _print_and_log(f"Final memory: {final_mem:.0f} MB")
     print(f"  Memory end:     {final_mem:.0f} MB")
     print(f"{'='*70}")
 

@@ -489,7 +489,9 @@ def save_detail(advert_id):
 
     c.execute("""
         UPDATE adverts
-        SET supervisor_name = COALESCE(?, ''),
+        SET city = COALESCE(?, ''),
+            organization_name = COALESCE(?, ''),
+            supervisor_name = COALESCE(?, ''),
             supervisor_work = COALESCE(?, ''),
             date_defend = COALESCE(?, ''),
             dissertation_name = COALESCE(?, ''),
@@ -499,6 +501,8 @@ def save_detail(advert_id):
             defend_org = COALESCE(?, '')
         WHERE id = ?
     """, (
+        safe_str(data.get("city")),
+        safe_str(data.get("organization_name")),
         safe_str(data.get("supervisor_name")),
         safe_str(data.get("supervisor_work")),
         safe_str(data.get("date_defend")),

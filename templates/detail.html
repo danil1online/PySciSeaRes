@@ -30,26 +30,34 @@
 
     <div class="detail-section">
         <table class="detail-table">
-            {% if advert.city %}
             <tr>
                 <td class="detail-label">Город:</td>
                 <td>
                     <div class="view-row">
-                        <span class="view-value">{{ advert.city }}</span>
+                        <span class="view-value">{{ advert.city or '—' }}</span>
+                        <button class="edit-btn" data-target="city">✎</button>
+                    </div>
+                    <div class="edit-row" style="display:none;">
+                        <input type="text" class="edit-value" data-field="city" value="{{ advert.city or '' }}" placeholder="Город">
+                        <button class="save-field-btn" data-target="city">✓</button>
+                        <button class="cancel-edit-btn">✕</button>
                     </div>
                 </td>
             </tr>
-            {% endif %}
-            {% if advert.organization_name %}
             <tr>
                 <td class="detail-label">Организация:</td>
                 <td>
                     <div class="view-row">
-                        <span class="view-value">{{ advert.organization_name }}</span>
+                        <span class="view-value">{{ advert.organization_name or '—' }}</span>
+                        <button class="edit-btn" data-target="organization_name">✎</button>
+                    </div>
+                    <div class="edit-row" style="display:none;">
+                        <input type="text" class="edit-value" data-field="organization_name" value="{{ advert.organization_name or '' }}" placeholder="Организация">
+                        <button class="save-field-btn" data-target="organization_name">✓</button>
+                        <button class="cancel-edit-btn">✕</button>
                     </div>
                 </td>
             </tr>
-            {% endif %}
             <tr>
                 <td class="detail-label">Дата защиты:</td>
                 <td>
