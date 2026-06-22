@@ -5,6 +5,7 @@
 """
 import sys
 import os
+import re
 import time
 from datetime import datetime, timedelta
 
@@ -237,9 +238,9 @@ def _extract_publications(conn, advert_id, pdf_path, counters):
 def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids):
     """Обрабатывает одно объявление о защите."""
     advert_db_id = advert["id"]
-    if adv_id in processed_ids:
+    if advert_db_id in processed_ids:
         return False
-    processed_ids.add(adv_id)
+    processed_ids.add(advert_db_id)
 
     from vak_sync.vak_api import get_advert_detail
 
@@ -247,9 +248,9 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     date_defend = advert.get("date_defend", "")
     counters["processed"] += 1
 
-    _print_and_log(f"[{adv_id[:8]}...] {fio} | {date_defend}")
+    _print_and_log(f"[{advert_db_id[:8]}...] {fio} | {date_defend}")
 
-    detail = get_advert_detail(adv_id)
+    detail = get_advert_detail(advert_db_id)
     if not detail:
         _print_and_log("Error getting detail", "ERROR")
         counters["errors"] += 1
@@ -258,7 +259,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     c = conn.cursor()
 
     new_defense = is_new_defense(fio, date_defend)
-    advert_db_id = detail.get("id") or adv_id
+    advert_db_id = detail.get("id")
 
     try:
         c.execute("""INSERT OR REPLACE INTO adverts (
