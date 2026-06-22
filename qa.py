@@ -1,15 +1,13 @@
+"""LLM QA-модуль: генерация SQL, выполнение запросов, валидация."""
 import sqlite3
-import os
 import json
 import re
 import requests
-import urllib3
 
-from config import LLM_API_URL, LLM_MODEL, HEADERS, LLM_TIMEOUT, LLM_MAX_TOKENS, LLM_TEMPERATURE
+from config import LLM_API_URL, LLM_MODEL, HEADERS, LLM_TIMEOUT, LLM_MAX_TOKENS, LLM_TEMPERATURE, DB_PATH
+from logging_config import get_logger
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "vak.db")
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+logger = get_logger("qa")
 
 # System prompt for SQL generation
 SQL_SYSTEM_PROMPT = (
@@ -43,7 +41,7 @@ SQL_SYSTEM_PROMPT = (
     "  - journal (TEXT) — журнал/источник\n"
     "  - year (INTEGER) — год\n"
     "  - pages (TEXT) — страницы\n"
-    "\n"
+
     "ВАЖНЫЕ ПРАВИЛА:\n"
     "1. Для подсчёта публикаций на диссертацию используйте: COUNT(p.id) FROM publications p LEFT JOIN adverts a ON p.advert_id = a.id\n"
     "2. Для группировки по специальности используйте: GROUP BY specialty_cipher\n"
@@ -71,6 +69,7 @@ def get_db():
 
 def get_schema_info():
     """Получить структуру БД и примеры данных для контекста LLM."""
+    logger.debug("Fetching schema info from database")
     conn = get_db()
     c = conn.cursor()
 
@@ -91,38 +90,39 @@ def get_schema_info():
             c.execute(f"SELECT COUNT(*) FROM {table_name}")
             count = c.fetchone()[0]
             info[table_name] = {"count": count}
-        except:
+        except Exception:
             pass
 
     # Sample data for adverts
     try:
         c.execute("SELECT id, fio, date_defend, dissertation_name, specialty_cipher, specialty_text, supervisor_name, COUNT(p.id) FROM adverts a LEFT JOIN publications p ON p.advert_id = a.id GROUP BY a.id LIMIT 5")
         info["adverts_sample"] = c.fetchall()
-    except:
+    except Exception:
         info["adverts_sample"] = []
 
     # Sample data for publications
     try:
         c.execute("SELECT advert_id, pub_number, authors, title, journal, year, pages FROM publications LIMIT 10")
         info["publications_sample"] = c.fetchall()
-    except:
+    except Exception:
         info["publications_sample"] = []
 
     # Distinct specialties (for dropdown context)
     try:
         c.execute("SELECT DISTINCT specialty_cipher, specialty_text FROM adverts WHERE specialty_cipher IS NOT NULL AND specialty_cipher != '' ORDER BY specialty_cipher LIMIT 20")
         info["specialties"] = c.fetchall()
-    except:
+    except Exception:
         info["specialties"] = []
 
     # Distinct years in publications
     try:
         c.execute("SELECT DISTINCT year FROM publications WHERE year IS NOT NULL ORDER BY year DESC LIMIT 10")
         info["publication_years"] = [r[0] for r in c.fetchall()]
-    except:
+    except Exception:
         info["publication_years"] = []
 
     conn.close()
+    logger.debug(f"Schema info: {len(tables_schema)} tables")
     return info
 
 
@@ -133,7 +133,6 @@ def build_context_prompt(schema_info):
         num_pubs=schema_info.get("publications", {}).get("count", 0),
     )
 
-    # Add specialties context
     specialties = schema_info.get("specialties", [])
     if specialties:
         spec_list = "\n".join([f"  {s[0]} — {s[1]}" for s in specialties[:15]])
@@ -141,21 +140,18 @@ def build_context_prompt(schema_info):
         if len(specialties) > 15:
             ctx += f"  ... и ещё {len(specialties) - 15} специальностей\n"
 
-    # Add sample adverts
     sample_adverts = schema_info.get("adverts_sample", [])
     if sample_adverts:
         ctx += "\nПримеры записей adverts (id, fio, date_defend, dissertation_name, specialty_cipher, specialty_text, supervisor_name, pub_count):\n"
         for row in sample_adverts:
             ctx += f"  {row}\n"
 
-    # Add sample publications
     sample_pubs = schema_info.get("publications_sample", [])
     if sample_pubs:
         ctx += "\nПримеры записей publications (advert_id, pub_number, authors, title, journal, year, pages):\n"
         for row in sample_pubs[:5]:
             ctx += f"  {row}\n"
 
-    # Add years context
     years = schema_info.get("publication_years", [])
     if years:
         ctx += f"\nГоды публикаций в базе: {', '.join(str(y) for y in years)}\n"
@@ -171,6 +167,8 @@ SCHEMA_INFO_PROMPT = (
 
 def generate_sql(question, context):
     """Сгенерировать SQL-запрос из вопроса пользователя через LLM."""
+    logger.info(f"Generating SQL for question: {question[:80]}...")
+
     system_msg = {
         "role": "system",
         "content": SQL_SYSTEM_PROMPT,
@@ -191,6 +189,7 @@ def generate_sql(question, context):
 
     for attempt in range(3):
         try:
+            logger.debug(f"LLM request attempt {attempt + 1}/3")
             resp = requests.post(
                 LLM_API_URL,
                 headers=HEADERS,
@@ -198,17 +197,21 @@ def generate_sql(question, context):
                     "model": LLM_MODEL,
                     "messages": [system_msg, user_msg],
                     "max_tokens": LLM_MAX_TOKENS,
-                    "temperature": 0,
+                    "temperature": LLM_TEMPERATURE,
                 },
                 timeout=LLM_TIMEOUT,
             )
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+            result = resp.json()["choices"][0]["message"]["content"]
+            logger.info(f"SQL generated successfully: {result[:100]}")
+            return result
         except requests.exceptions.Timeout:
+            logger.warning(f"LLM timeout on attempt {attempt + 1}/3")
             if attempt < 2:
                 continue
             raise
-        except Exception:
+        except Exception as e:
+            logger.error(f"LLM error on attempt {attempt + 1}/3: {e}")
             if attempt < 2:
                 continue
             raise
@@ -221,7 +224,6 @@ def parse_sql_response(response):
     sql_match = re.search(r'```sql\s*\n(.*?)\n```', response, re.DOTALL)
     if sql_match:
         return sql_match.group(1).strip().rstrip(';').rstrip()
-    # Fallback: try to find any SQL-like SELECT
     sql_match2 = re.search(r'(SELECT\s.+?;?)', response, re.DOTALL | re.IGNORECASE)
     if sql_match2:
         return sql_match2.group(1).strip().rstrip(';').rstrip()
@@ -243,26 +245,22 @@ def _validate_sql(sql, max_rows=100):
     """Валидация SQL-запроса: запрет опасных операций, ограничение количества строк."""
     sql_upper = sql.strip().upper()
 
-    # Разрешённые операторы
     allowed_patterns = [
         r'^\s*SELECT\s', r'^\s*\(\s*SELECT\s',
     ]
     if not any(re.match(p, sql_upper) for p in allowed_patterns):
         return False, f"Разрешены только SELECT-запросы, получено: {sql.strip()[:50]}..."
 
-    # Проверка на опасные паттерны
     for pattern in _SQL_DANGEROUS_PATTERNS:
         if re.search(pattern, sql_upper):
             return False, f"Запрещённая операция в SQL: {pattern}"
 
-    # Проверка LIMIT
     limit_match = re.search(r'\bLIMIT\s+(\d+)', sql_upper)
     if limit_match:
         limit_val = int(limit_match.group(1))
         if limit_val > max_rows:
             return False, f"LIMIT слишком большой: {limit_val} (макс. {max_rows})"
     else:
-        # Если нет LIMIT — добавить по умолчанию
         sql = sql.rstrip()
         if not sql.upper().endswith(';'):
             sql += ';'
@@ -274,9 +272,9 @@ def _validate_sql(sql, max_rows=100):
 
 def execute_sql(sql):
     """Выполнить SQL-запрос и вернуть результаты."""
-    # Валидация перед выполнением
     valid, result = _validate_sql(sql)
     if not valid:
+        logger.warning(f"SQL validation failed: {result}")
         return {
             "columns": [],
             "rows": [],
@@ -285,12 +283,14 @@ def execute_sql(sql):
         }
     sql = result
 
+    logger.debug(f"Executing SQL: {sql[:100]}")
     conn = get_db()
     c = conn.cursor()
     try:
         c.execute(sql)
         columns = [desc[0] for desc in c.description] if c.description else []
         rows = c.fetchall()
+        logger.debug(f"SQL returned {len(rows)} rows, {len(columns)} columns")
         return {
             "columns": columns,
             "rows": [list(row) for row in rows],
@@ -298,6 +298,7 @@ def execute_sql(sql):
             "error": None,
         }
     except Exception as e:
+        logger.error(f"SQL execution error: {e}")
         return {
             "columns": [],
             "rows": [],
@@ -320,7 +321,6 @@ def format_result(data):
     if not columns:
         return "Запрос выполнен, но не возвращает данные. Попробуйте другой вопрос."
 
-    # If single column with small result set — show as list
     if len(columns) == 1 and count <= 20:
         header = columns[0]
         result = [f"  {r[0]}" for r in rows[:50]]
@@ -328,7 +328,6 @@ def format_result(data):
             result.append(f"  ... и ещё {count - 50} записей")
         return f"{header}:\n" + "\n".join(result)
 
-    # Multi-column: format as table
     col_widths = [len(c) for c in columns]
     for row in rows:
         for i, val in enumerate(row):
@@ -366,7 +365,6 @@ def build_answer(question, result):
     if not columns:
         return "Запрос выполнен, но не возвращает данных. Попробуйте переформулировать вопрос."
 
-    # Single value (COUNT, etc.)
     if len(columns) == 1 and count <= 1:
         val = rows[0][0] if rows else "нет данных"
         col_name = columns[0].lower()
@@ -374,7 +372,6 @@ def build_answer(question, result):
             return f"В базе {val} записей." if val else "В базе нет записей."
         return f"Результат: {val}"
 
-    # Single column, multiple rows (list)
     if len(columns) == 1:
         header = columns[0].capitalize()
         top5 = rows[:5]
@@ -383,14 +380,10 @@ def build_answer(question, result):
             result_lines.append(f"  ... и ещё {count - 5} записей")
         return f"{header} (всего {count}):\n" + "\n".join(result_lines)
 
-    # Multi-column results
     answer_parts = []
-
-    # Try to detect common patterns
     col_str = " ".join(columns).lower()
 
     if "pub_count" in col_str or "count" in col_str:
-        # Ranking / counting question
         if len(columns) == 2:
             col2_name = columns[1].replace("_", " ").title()
             filtered_rows = [r for r in rows if r[0] is not None and str(r[0]).strip()]
@@ -402,7 +395,6 @@ def build_answer(question, result):
                 answer_parts.append(f"  ... и ещё {filtered_count - 10}")
             return "\n".join(answer_parts)
 
-    # General multi-column
     top5 = rows[:5]
     answer_parts.append(f"Найден {count} результат(ов):\n")
     for row in top5:
@@ -422,10 +414,11 @@ def build_answer(question, result):
 
 def process_question(question):
     """Основной поток обработки вопроса: контекст -> SQL -> ответ."""
+    logger.info(f"Processing question: {question[:80]}...")
+
     schema_info = get_schema_info()
     context = build_context_prompt(schema_info)
 
-    # Generate SQL via LLM
     llm_response = generate_sql(question, context)
     if not llm_response:
         return {
@@ -447,7 +440,6 @@ def process_question(question):
             "result": None,
         }
 
-    # Execute SQL
     result = execute_sql(sql)
 
     if result.get("error"):

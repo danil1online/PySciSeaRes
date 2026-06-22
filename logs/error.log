@@ -1,0 +1,26 @@
+2026-06-22 17:34:31 [ERROR] vak.vak_api: File not found: /tmp/pytest-of-user/pytest-81/test_read_missing_file0/missing.txt
+2026-06-22 17:35:22 [ERROR] vak.vak_api: File not found: /tmp/pytest-of-user/pytest-82/test_read_missing_file0/missing.txt
+2026-06-22 17:35:56 [ERROR] vak.vak_api: File not found: /tmp/pytest-of-user/pytest-83/test_read_missing_file0/missing.txt
+2026-06-22 17:36:46 [ERROR] vak.pdf: Error loading page http://127.0.0.1:19908/page: 404 Client Error: Not Found for url: http://127.0.0.1:19908/page
+2026-06-22 17:36:47 [ERROR] vak.pdf: Error loading page http://example.com/page: Network error
+2026-06-22 17:38:22 [ERROR] vak.vak_api: File not found: /tmp/pytest-of-user/pytest-84/test_read_missing_file0/missing.txt
+2026-06-22 17:38:27 [ERROR] vak.pdf: Error loading page http://127.0.0.1:19908/page: 404 Client Error: Not Found for url: http://127.0.0.1:19908/page
+2026-06-22 17:38:28 [ERROR] vak.pdf: Error loading page http://example.com/page: Network error
+2026-06-22 17:39:42 [ERROR] vak.vak_api: File not found: /tmp/pytest-of-user/pytest-85/test_read_missing_file0/missing.txt
+2026-06-22 17:39:47 [ERROR] vak.pdf: Error loading page http://127.0.0.1:19908/page: 404 Client Error: Not Found for url: http://127.0.0.1:19908/page
+2026-06-22 17:39:47 [ERROR] vak.pdf: Error loading page http://example.com/page: Network error
+2026-06-22 17:47:03 [ERROR] vak.vak_api: File not found: /tmp/pytest-of-user/pytest-86/test_read_missing_file0/missing.txt
+2026-06-22 17:47:08 [ERROR] vak.pdf: Error loading page http://127.0.0.1:19908/page: 404 Client Error: Not Found for url: http://127.0.0.1:19908/page
+2026-06-22 17:47:09 [ERROR] vak.pdf: Error loading page http://example.com/page: Network error
+2026-06-22 17:47:53 [ERROR] vak.supervisor: LLM request error for supervisor: Timeout
+2026-06-22 17:47:53 [ERROR] vak.supervisor: LLM request error for supervisor: Timeout
+2026-06-22 19:37:24 [ERROR] vak.vak_api: File not found: /tmp/pytest-of-user/pytest-87/test_read_missing_file0/missing.txt
+2026-06-22 19:37:49 [ERROR] vak.vak_api: File not found: /tmp/pytest-of-user/pytest-88/test_read_missing_file0/missing.txt
+2026-06-22 19:40:30 [ERROR] vak.vak_api: File not found: /tmp/pytest-of-user/pytest-89/test_read_missing_file0/missing.txt
+2026-06-22 19:40:37 [ERROR] vak.pdf: Error loading page http://127.0.0.1:19908/page: 404 Client Error: Not Found for url: http://127.0.0.1:19908/page
+2026-06-22 19:40:38 [ERROR] vak.pdf: Error loading page http://example.com/page: Network error
+2026-06-22 19:45:00 [ERROR] vak.vak_api: File not found: /tmp/pytest-of-user/pytest-90/test_read_missing_file0/missing.txt
+2026-06-22 19:45:05 [ERROR] vak.pdf: Error loading page http://127.0.0.1:19908/page: 404 Client Error: Not Found for url: http://127.0.0.1:19908/page
+2026-06-22 19:45:06 [ERROR] vak.pdf: Error loading page http://example.com/page: Network error
+2026-06-22 19:45:51 [ERROR] vak.supervisor: LLM request error for supervisor: Timeout
+2026-06-22 19:45:51 [ERROR] vak.supervisor: LLM request error for supervisor: Timeout

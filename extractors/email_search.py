@@ -13,6 +13,12 @@ from urllib.parse import urljoin, urlparse
 from config import (
     LLM_API_URL, LLM_MODEL, LLM_TIMEOUT, LLM_MAX_TOKENS, LLM_TEMPERATURE,
 )
+from rate_limiter import (
+    DDG_LIMITER, SEMANTIC_SCHOLAR_LIMITER, CROSSREF_LIMITER, DOI_LIMITER,
+)
+from logging_config import get_logger
+
+logger = get_logger("email_search")
 
 SEMANTIC_SCHOLAR_API = "https://api.semanticscholar.org/graph/v1/paper/search"
 CROSSREF_API = "https://api.crossref.org/works"
@@ -89,6 +95,9 @@ def _build_ddg_query(pub, suffix=""):
 def _search_duckduckgo(pub, max_results=10):
     """Ищет публикацию через DuckDuckGo полными данными публикации."""
     query = _build_ddg_query(pub)
+    # Rate limiting
+    if not DDG_LIMITER.allow():
+        time.sleep(DDG_LIMITER.wait_time())
     try:
         import ddgs
         with ddgs.DDGS() as ddgs:
@@ -235,6 +244,10 @@ def _search_semantic_scholar(title, author="", year=None, limit=5):
     if not query:
         return []
 
+    # Rate limiting
+    if not SEMANTIC_SCHOLAR_LIMITER.allow():
+        time.sleep(SEMANTIC_SCHOLAR_LIMITER.wait_time())
+
     params = {
         "query": query,
         "limit": limit,
@@ -259,6 +272,10 @@ def _search_crossref(title, author="", year=None, limit=3):
     query = _normalize_title(title)
     if not query:
         return []
+
+    # Rate limiting
+    if not CROSSREF_LIMITER.allow():
+        time.sleep(CROSSREF_LIMITER.wait_time())
 
     params = {
         "query.title": query,
@@ -299,6 +316,9 @@ def _resolve_doi(doi):
     """Разрешает DOI через DOI resolver."""
     if not doi:
         return None
+    # Rate limiting
+    if not DOI_LIMITER.allow():
+        time.sleep(DOI_LIMITER.wait_time())
     url = f"{DOI_RESOLVER}{doi}"
     try:
         r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=15,
@@ -753,6 +773,8 @@ def find_email_for_publication(pub, autoref_text=None):
     Для PDF — ищет на первой и последней странице.
     Возвращает: {emails: [...], source: {...}} или {emails: [], source: None}
     """
+    pub_title = pub.get('title', '')[:50] if pub else ''
+    logger.debug(f"Searching email for publication: {pub_title}...")
     if not pub:
         return {'emails': [], 'source': None}
 
@@ -800,10 +822,14 @@ def find_emails_for_publications(publications, autoref_text=None):
     if not publications:
         return []
 
+    logger.info(f"Searching emails for {len(publications)} publications")
     results = []
     for i, pub in enumerate(publications):
         try:
             result = find_email_for_publication(pub, autoref_text)
+            emails_found = len(result['emails'])
+            if emails_found:
+                logger.debug(f"Publication {i+1}: found {emails_found} email(s)")
             results.append((pub, result['emails'], result['source']))
             time.sleep(1)
         except Exception:

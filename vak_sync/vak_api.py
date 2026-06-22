@@ -1,23 +1,33 @@
-"""Взаимодействие с VAK API."""
+"""Взаимодействие с VAK API с rate limiting."""
 import os
 import time
 import re
 import requests
 
 from config import API_BASE, HEADERS
+from rate_limiter import VAK_API_LIMITER
+from logging_config import get_logger
+
+logger = get_logger("vak_api")
 
 
 def _api_request_with_retry(url, params=None, headers=None, max_retries=3, timeout=30):
-    """Выполняет HTTP-запрос с повторными попытками при ошибках."""
+    """Выполняет HTTP-запрос с повторными попытками и rate limiting."""
     for attempt in range(max_retries):
+        # Rate limiting: ждём пока разрешён запрос
+        if not VAK_API_LIMITER.allow():
+            wait = VAK_API_LIMITER.wait_time()
+            logger.debug(f"Rate limited, waiting {wait:.1f}s")
+            time.sleep(wait)
+
         try:
             resp = requests.get(url, params=params, headers=headers, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             if attempt < max_retries - 1:
-                wait = 2 ** attempt  # экспоненциальная задержка: 1, 2, 4 сек
-                print(f"    Соединение потеряно, повтор через {wait}с...")
+                wait = 2 ** attempt
+                logger.warning(f"Connection error, retry {attempt + 1}/{max_retries} in {wait}s: {e}")
                 time.sleep(wait)
             else:
                 raise
@@ -25,7 +35,7 @@ def _api_request_with_retry(url, params=None, headers=None, max_retries=3, timeo
             status_code = e.response.status_code if e.response else "?"
             if status_code in (429, 502, 503, 504) and attempt < max_retries - 1:
                 wait = 2 ** attempt
-                print(f"    HTTP {status_code}, повтор через {wait}с...")
+                logger.warning(f"HTTP {status_code}, retry {attempt + 1}/{max_retries} in {wait}s")
                 time.sleep(wait)
             else:
                 raise
@@ -39,20 +49,19 @@ def read_specialties(spec_file=None):
         spec_file = SCI_SPEC_FILE
     specs = []
     if not os.path.exists(spec_file):
-        print(f"  Файл {spec_file} не найден!")
+        logger.error(f"File not found: {spec_file}")
         return specs
     with open(spec_file, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            # Format: "1.2.1 - Искусственный интеллект" or just "1.2.1."
             m = re.match(r'^(\S+?)\s*[-—–]\s*(.*)', line)
             if m:
                 specs.append((m.group(1).strip(), m.group(2).strip()))
             else:
                 specs.append((line, ""))
-    print(f"  Загружено {len(specs)} специальностей из {spec_file}")
+    logger.info(f"Loaded {len(specs)} specialties from {spec_file}")
     return specs
 
 
@@ -76,26 +85,27 @@ def search_adverts(specialty_id, date_from, date_to):
                 timeout=30,
             )
             if data is None:
-                print(f"  Ошибка API (страница {page}): max retries exceeded")
+                logger.error(f"API error (page {page}): max retries exceeded")
                 break
         except requests.exceptions.HTTPError as e:
-            print(f"  Ошибка API (страница {page}): HTTP {e.response.status_code if e.response else '?'}")
+            logger.error(f"API error (page {page}): HTTP {e.response.status_code if e.response else '?'}")
             break
         except Exception as e:
-            print(f"  Ошибка API (страница {page}): {e}")
+            logger.error(f"API error (page {page}): {e}")
             break
 
         results = data.get("results", [])
         if not results:
             break
         all_results.extend(results)
-        print(f"  Страница {page}: {len(all_results)} из {data.get('count', '?')}")
+        logger.debug(f"Page {page}: {len(all_results)} of {data.get('count', '?')}")
 
         if data.get("next"):
             page += 1
         else:
             break
 
+    logger.info(f"Total {len(all_results)} adverts for specialty {specialty_id}")
     return all_results
 
 
@@ -109,8 +119,8 @@ def get_advert_detail(advert_id):
         )
         return data if data else {}
     except requests.exceptions.HTTPError as e:
-        print(f"  Ошибка получения детализации {advert_id}: HTTP {e.response.status_code if e.response else '?'}")
+        logger.error(f"Detail error {advert_id}: HTTP {e.response.status_code if e.response else '?'}")
         return {}
     except Exception as e:
-        print(f"  Ошибка получения детализации {advert_id}: {e}")
+        logger.error(f"Detail error {advert_id}: {e}")
         return {}

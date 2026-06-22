@@ -7,12 +7,12 @@ import sqlite3
 import tempfile
 import pytest
 
+# Disable LLM cache during tests to avoid stale cached responses
+os.environ["VAK_CACHE_ENABLED"] = "0"
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import AUTOREFS_DIR, DB_PATH, BASE_DIR
-
-# Disable LLM cache during tests to avoid stale cached responses
-os.environ["VAK_CACHE_ENABLED"] = "0"
 
 
 @pytest.fixture

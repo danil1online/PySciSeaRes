@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+{% block title %}Карта защит{% endblock %}
+{% block content %}
+<div class="map-page">
+    <h1>Карта защит по городам</h1>
+
+    <div class="map-controls">
+        <div class="form-group">
+            <label for="city-filter">Фильтр по городу:</label>
+            <input type="text" id="city-filter" placeholder="Введите город...">
+        </div>
+        <div class="form-group">
+            <label>Группировка по специальности:</label>
+            <select id="specialty-filter">
+                <option value="all">Все специальности</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="map-container" style="height: 70vh; border-radius: 8px; overflow: hidden; margin-top: 16px;"></div>
+
+    <div class="map-legend" id="map-legend">
+        <h3>Легенда</h3>
+        <p>Размер точки = количество защит</p>
+        <p>Цвет точки = специальность</p>
+        <div id="legend-colors"></div>
+    </div>
+
+    <div class="map-stats" id="map-stats">
+        <p>Всего городов: <span id="total-cities">0</span></p>
+        <p>Всего защит: <span id="total-defenses">0</span></p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const cityStats = {{ city_stats | tojson }};
+const cities = {{ cities | tojson }};
+const specialtyGroups = {{ specialties | map(attribute='key') | tojson }};
+
+const specialtyColors = {
+    "1": "#1f77b4", // Математика
+    "1.1": "#1f77b4",
+    "1.2": "#1f77b4",
+    "1.3": "#1f77b4",
+    "1.4": "#1f77b4",
+    "1.5": "#1f77b4",
+    "1.6": "#1f77b4",
+    "2": "#ff7f0e", // Строительство
+    "2.1": "#ff7f0e",
+    "2.2": "#ff7f0e",
+    "2.3": "#ff7f0e",
+    "2.4": "#ff7f0e",
+    "2.5": "#ff7f0e",
+    "2.6": "#ff7f0e",
+    "2.7": "#ff7f0e",
+    "2.8": "#ff7f0e",
+    "2.9": "#ff7f0e",
+    "2.10": "#ff7f0e",
+    "3": "#2ca02c", // Медицина
+    "3.1": "#2ca02c",
+    "3.2": "#2ca02c",
+    "3.3": "#2ca02c",
+    "3.4": "#2ca02c",
+    "4": "#d62728", // Агрономия
+    "4.1": "#d62728",
+    "4.2": "#d62728",
+    "4.3": "#d62728",
+    "5": "#9467bd", // Гуманитарные
+    "5.1": "#9467bd",
+    "5.2": "#9467bd",
+    "5.3": "#9467bd",
+    "5.4": "#9467bd",
+    "5.5": "#9467bd",
+    "5.6": "#9467bd",
+    "5.7": "#9467bd",
+    "5.8": "#9467bd",
+    "5.9": "#9467bd",
+    "5.10": "#9467bd",
+    "5.11": "#9467bd",
+    "5.12": "#9467bd",
+};
+
+// City coordinates (lat, lon)
+const cityCoords = {
+    "москва": [55.7558, 37.6173],
+    "москве": [55.7558, 37.6173],
+    "санкт-петербург": [59.9343, 30.3351],
+    "петербург": [59.9343, 30.3351],
+    "спб": [59.9343, 30.3351],
+    "новосибирск": [55.0084, 82.9357],
+    "екатеринбург": [56.8389, 60.6057],
+    "казань": [55.7961, 49.1064],
+    "нижний новгород": [56.2965, 43.9361],
+    "челябинск": [55.1644, 61.4368],
+    "самара": [53.1959, 50.1002],
+    "омск": [54.9885, 73.3242],
+    "красноярск": [56.0153, 92.8932],
+    "пермь": [58.0105, 56.2294],
+    "воронеж": [51.6683, 39.1840],
+    "ростов-на-дону": [47.2357, 39.7015],
+    "уфа": [54.7388, 55.9721],
+    "краснодар": [45.0355, 38.9753],
+    "вологда": [59.2239, 39.8839],
+    "тула": [54.1961, 37.6182],
+    "калуга": [54.5293, 36.2754],
+    "ярославль": [57.6261, 39.8845],
+    "тверь": [56.8587, 35.9176],
+    "иркутск": [52.2970, 104.2964],
+    "томск": [56.5012, 84.9924],
+    "белгород": [50.5997, 36.5881],
+    "курск": [51.7372, 36.1874],
+    "липецк": [52.6031, 39.5708],
+    "тамбов": [52.7219, 41.4436],
+    "владимир": [56.1290, 40.4071],
+    "рязань": [54.6269, 39.6916],
+    "пенза": [53.2001, 45.0049],
+    "саратов": [51.5462, 46.0154],
+    "волгоград": [48.7080, 44.5133],
+    "брянск": [53.2521, 34.3717],
+    "смоленск": [54.7826, 32.0453],
+    "псков": [57.8194, 28.3318],
+    "мурманск": [68.9585, 33.0827],
+    "архангельск": [64.5401, 40.5433],
+    "орел": [52.9651, 36.0785],
+    "киров": [58.6035, 49.6680],
+    "набережные челны": [55.7251, 52.4840],
+    "ижевск": [56.8527, 53.2114],
+    "язь": [56.3287, 44.0020],
+    "чепецк": [58.6656, 51.8434],
+    "шуя": [56.3944, 41.6819],
+    "родники": [57.1667, 42.0167],
+    "суздаль": [56.4289, 40.4607],
+    "kostroma": [57.7675, 40.9289],
+    "иваново": [56.9966, 40.9819],
+    "мценск": [53.0456, 35.8944],
+    "рославль": [53.2469, 32.8881],
+    "вышний вочек": [57.0667, 34.6167],
+    "ржев": [56.5906, 32.0879],
+    "сарапул": [57.2136, 53.3727],
+    "миасс": [55.0459, 60.1026],
+    "салават": [54.3778, 55.9444],
+    "нефтекамск": [56.0833, 55.2000],
+    "краснокамск": [56.0500, 54.6833],
+    "альметьевск": [54.9000, 52.4667],
+    "нурлат": [54.9500, 51.7333],
+    "златоуст": [54.9608, 59.9929],
+    "чебоксары": [56.1322, 47.2489],
+    "новокузнецк": [53.7596, 87.1216],
+    "прокопьевск": [53.9817, 86.7108],
+    "пионерский": [54.7333, 20.5000],
+    "светлогорск": [54.7286, 20.4667],
+    "апрелевка": [55.5000, 37.2833],
+    "подольск": [55.4297, 37.5578],
+    "клин": [56.3514, 37.0747],
+    "чехов": [55.3100, 37.4100],
+    "железнодорожный": [55.7969, 38.0378],
+    "красногорск": [55.8300, 37.3297],
+    "домодедово": [55.4311, 37.7956],
+    "серпухов": [54.9219, 37.4106],
+    "обнинск": [55.0969, 36.6056],
+    "пушкино": [55.9219, 37.8931],
+    "люберцы": [55.6889, 37.8939],
+    "мытищи": [55.9106, 37.7369],
+    "химки": [55.8969, 37.4297],
+    "балашиха": [55.7964, 37.9378],
+    "королёв": [55.9219, 37.8939],
+    "электросталь": [55.7869, 38.4439],
+    "реутов": [55.7597, 37.8650],
+    "видное": [55.6500, 37.7500],
+    "щелково": [55.9731, 38.2281],
+    "фрязино": [56.0167, 38.3000],
+    "жуковский": [55.7000, 38.1167],
+    "новомосковск": [54.1000, 38.0333],
+    "кашира": [55.3667, 38.3167],
+    "старица": [57.2167, 34.6833],
+    "вятка": [58.6035, 49.6680],
+    "череповец": [59.1369, 37.9069],
+    "заречный": [56.8833, 60.7167],
+    "северодвинск": [64.5500, 40.5500],
+    "бережники": [56.6500, 34.6000],
+};
+
+function getCityCoords(city) {
+    const lower = city.toLowerCase().trim();
+    if (cityCoords[lower]) {
+        return cityCoords[lower];
+    }
+    // Try without "г. " prefix
+    const noPrefix = lower.replace(/^г\.\s*/, '');
+    if (cityCoords[noPrefix]) {
+        return cityCoords[noPrefix];
+    }
+    // Try partial match
+    for (const [key, coords] of Object.entries(cityCoords)) {
+        if (lower.includes(key) || key.includes(lower)) {
+            return coords;
+        }
+    }
+    // Default: Moscow
+    return [55.7558, 37.6173];
+}
+
+function getSpecialtyColor(cipher) {
+    if (!cipher) return "#999";
+    const parts = cipher.split('.');
+    const group = parts.length >= 2 ? parts[0] + '.' + parts[1] : parts[0];
+    return specialtyColors[group] || specialtyColors[parts[0]] || "#999";
+}
+
+function initMap() {
+    const map = L.map('map-container').setView([55.7558, 37.6173], 4);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const filteredStats = cityStats.filter(s => {
+        const cityFilter = document.getElementById('city-filter').value.toLowerCase();
+        const specialtyFilter = document.getElementById('specialty-filter').value;
+
+        if (cityFilter && !s.city.toLowerCase().includes(cityFilter)) {
+            return false;
+        }
+        if (specialtyFilter !== 'all') {
+            return s.specialties[specialtyFilter] > 0;
+        }
+        return true;
+    });
+
+    // Clear existing markers
+    map.eachLayer(layer => {
+        if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
+            map.removeLayer(layer);
+        }
+    });
+
+    filteredStats.forEach(stat => {
+        const coords = getCityCoords(stat.city);
+        if (!coords) return;
+
+        const radius = Math.max(8, Math.min(30, Math.sqrt(stat.count) * 4));
+        const primarySpecialty = Object.entries(stat.specialties)
+            .sort((a, b) => b[1] - a[1])[0];
+        const color = getSpecialtyColor(primarySpecialty[0]);
+
+        const marker = L.circleMarker(coords, {
+            radius: radius,
+            fillColor: color,
+            color: '#333',
+            weight: 1,
+            opacity: 1,
+            fillOpacity: 0.7
+        }).addTo(map);
+
+        const tooltip = `<strong>${stat.city}</strong><br>` +
+            `Всего защит: ${stat.count}<br>` +
+            `Основная специальность: ${primarySpecialty[0]}<br>` +
+            `Специальности: ${Object.entries(stat.specialties).map(([s, c]) => `${s}: ${c}`).join(', ')}`;
+
+        marker.bindTooltip(tooltip, { sticky: true });
+        marker.bindPopup(`<strong>${stat.city}</strong><br>Защит: ${stat.count}<br>${Object.entries(stat.specialties).map(([s, c]) => `${s}: ${c} защит`).join('<br>')}`);
+    });
+
+    // Update stats
+    document.getElementById('total-cities').textContent = filteredStats.length;
+    document.getElementById('total-defenses').textContent = filteredStats.reduce((sum, s) => sum + s.count, 0);
+
+    // Update legend
+    const usedColors = new Set();
+    filteredStats.forEach(s => {
+        const primarySpecialty = Object.entries(s.specialties)
+            .sort((a, b) => b[1] - a[1])[0];
+        if (primarySpecialty) {
+            usedColors.add(getSpecialtyColor(primarySpecialty[0]));
+        }
+    });
+
+    const legendHtml = Array.from(usedColors).map(color =>
+        `<div style="display: flex; align-items: center; gap: 8px; margin: 4px 0;">
+            <div style="width: 16px; height: 16px; border-radius: 50%; background: ${color}; border: 1px solid #333;"></div>
+            <span>Специальность</span>
+        </div>`
+    ).join('');
+    document.getElementById('legend-colors').innerHTML = legendHtml;
+}
+
+document.getElementById('city-filter').addEventListener('input', initMap);
+document.getElementById('specialty-filter').addEventListener('change', initMap);
+
+// Populate specialty filter
+const specialtyFilter = document.getElementById('specialty-filter');
+specialtyGroups.forEach(group => {
+    const option = document.createElement('option');
+    option.value = group;
+    option.textContent = group;
+    specialtyFilter.appendChild(option);
+});
+
+initMap();
+</script>
+<style>
+.map-page { max-width: 1200px; margin: 0 auto; }
+.map-controls { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.map-controls .form-group { flex: 1; min-width: 200px; }
+.map-controls input, .map-controls select {
+    width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;
+}
+.map-legend {
+    margin-top: 16px; padding: 16px; background: #f8f9fa; border-radius: 8px;
+}
+.map-legend h3 { margin-top: 0; }
+.map-stats {
+    margin-top: 16px; display: flex; gap: 32px;
+}
+.map-stats span { font-weight: bold; }
+</style>
+{% endblock %}

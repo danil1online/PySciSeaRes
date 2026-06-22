@@ -2,7 +2,10 @@
 import os
 import sqlite3
 
-DB_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "instance", "vak.db"))
+from config import DB_PATH
+from logging_config import get_logger
+
+logger = get_logger("db")
 
 
 def get_db():
@@ -19,10 +22,9 @@ def init_db():
     try:
         from auth import init_users as _init_users
         _init_users()
-    except Exception:
-        pass  # auth module might not be available in all contexts
+    except Exception as e:
+        logger.warning(f"Could not init users: {e}")
 
-    c = conn.cursor()
     c = conn.cursor()
 
     c.execute("""CREATE TABLE IF NOT EXISTS adverts (
@@ -47,40 +49,23 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
-    # Migration: add autoref_pdf_url column if it doesn't exist (for existing DBs)
-    try:
-        c.execute("ALTER TABLE adverts ADD COLUMN autoref_pdf_url TEXT")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-
-    # Migration: add email column to publications if it doesn't exist (for existing DBs)
-    try:
-        c.execute("ALTER TABLE publications ADD COLUMN email TEXT")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-
-    # Migration: add source_url and source_name columns to publications if they don't exist
-    try:
-        c.execute("ALTER TABLE publications ADD COLUMN source_url TEXT")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-
-    try:
-        c.execute("ALTER TABLE publications ADD COLUMN source_name TEXT")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-
-    # Migration: add email_search_attempts column to adverts if it doesn't exist
-    try:
-        c.execute("ALTER TABLE adverts ADD COLUMN email_search_attempts INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-
-    # Migration: add pub_extract_attempts column to adverts if it doesn't exist
-    try:
-        c.execute("ALTER TABLE adverts ADD COLUMN pub_extract_attempts INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    # Migration: add columns if they don't exist
+    migrations = [
+        ("adverts", "autoref_pdf_url TEXT"),
+        ("publications", "email TEXT"),
+        ("publications", "source_url TEXT"),
+        ("publications", "source_name TEXT"),
+        ("adverts", "email_search_attempts INTEGER DEFAULT 0"),
+        ("adverts", "pub_extract_attempts INTEGER DEFAULT 0"),
+        ("users", "cluster_id INTEGER"),
+        ("adverts", "city TEXT"),
+        ("adverts", "organization_name TEXT"),
+    ]
+    for table, column_sql in migrations:
+        try:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {column_sql}")
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
     c.execute("""CREATE TABLE IF NOT EXISTS publications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,16 +92,8 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
-    # Migration: add cluster_id column to users if it doesn't exist
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN cluster_id INTEGER")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-
-    # Enable WAL mode for better concurrent read performance
     c.execute("PRAGMA journal_mode=WAL")
 
-    # Indexes for search performance
     indexes = [
         "CREATE INDEX IF NOT EXISTS idx_adverts_specialty ON adverts(specialty_cipher)",
         "CREATE INDEX IF NOT EXISTS idx_adverts_date_defend ON adverts(date_defend)",
@@ -125,6 +102,7 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_adverts_cipher ON adverts(specialty_cipher, date_defend)",
         "CREATE INDEX IF NOT EXISTS idx_publications_advert ON publications(advert_id)",
         "CREATE INDEX IF NOT EXISTS idx_publications_year ON publications(year)",
+        "CREATE INDEX IF NOT EXISTS idx_adverts_city ON adverts(city)",
     ]
     for idx_sql in indexes:
         try:
@@ -133,4 +111,5 @@ def init_db():
             pass
 
     conn.commit()
+    logger.debug(f"Database initialized: {DB_PATH}")
     return conn

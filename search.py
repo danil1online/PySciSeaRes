@@ -1,8 +1,12 @@
-import sqlite3
+"""Поиск по БД, список специальностей, кластеры."""
 import os
 import re
+import sqlite3
 
-DB_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "vak.db"))
+from config import DB_PATH, CLUSTER_CSV_PATH, SCI_SPEC_FILE
+from logging_config import get_logger
+
+logger = get_logger("search")
 
 
 def get_db():
@@ -10,34 +14,28 @@ def get_db():
 
 
 def search_adverts(specialties=None, date_from=None, date_to=None, query=None,
-                   page=1, per_page=10, cluster_id=None):
-    # Resolve cluster specialties if cluster_id is provided
+                   page=1, per_page=10, cluster_id=None, city=None):
+    """Поиск диссертаций с фильтрацией по кластерам."""
     cluster_spec_list = None
     if cluster_id is not None:
         cluster_spec_list = load_cluster_specialties(cluster_id)
 
-    # Normalize specialty ciphers: ensure they end with a dot (DB format)
     def normalize_cipher(c):
         c = c.strip()
         if not c.endswith('.'):
             c = c + '.'
         return c
 
-    # Merge user-selected specialties with cluster specialties
-    # If cluster_id is set, only allow specialties from that cluster
     effective_specialties = None
     if cluster_spec_list:
         cluster_set = set(normalize_cipher(s) for s in cluster_spec_list)
         if specialties:
-            # Filter user-selected specialties by cluster
             filtered = [normalize_cipher(s) for s in specialties if normalize_cipher(s) in cluster_set]
             if filtered:
                 effective_specialties = filtered
             else:
-                # No specialties selected by user (or none match), use ALL cluster specialties
                 effective_specialties = list(cluster_set)
         else:
-            # No specialties selected, use ALL cluster specialties
             effective_specialties = list(cluster_set)
     elif specialties:
         effective_specialties = [normalize_cipher(s) for s in specialties]
@@ -75,9 +73,14 @@ def search_adverts(specialties=None, date_from=None, date_to=None, query=None,
         like_query = f"%{query}%"
         params.extend([like_query, like_query, like_query])
 
+    if city:
+        sql += " AND (a.city LIKE ? OR a.organization_name LIKE ?)"
+        like_city = f"%{city}%"
+        params.extend([like_city, like_city])
+
     sql += " GROUP BY a.id"
 
-    # Count total (use DISTINCT to avoid duplicate rows from JOIN with publications)
+    # Count total
     count_sql2 = """
         SELECT COUNT(DISTINCT a.id) FROM adverts a
         LEFT JOIN publications p ON p.advert_id = a.id
@@ -105,9 +108,16 @@ def search_adverts(specialties=None, date_from=None, date_to=None, query=None,
         like_query = f"%{query}%"
         count_params.extend([like_query, like_query, like_query])
 
+    if city:
+        count_sql2 += " AND (a.city LIKE ? OR a.organization_name LIKE ?)"
+        like_city = f"%{city}%"
+        count_params.extend([like_city, like_city])
+
     sql += " ORDER BY a.date_defend DESC"
     offset = (page - 1) * per_page
     sql += f" LIMIT {per_page} OFFSET {offset}"
+
+    logger.debug(f"Search query: {sql[:200]}... params={len(params)}")
 
     conn = get_db()
     c = conn.cursor()
@@ -136,6 +146,7 @@ def search_adverts(specialties=None, date_from=None, date_to=None, query=None,
     total_pages = (total + per_page - 1) // per_page if total > 0 else 0
     conn.close()
 
+    logger.debug(f"Found {total} adverts, returning page {page}")
     return {
         "adverts": adverts,
         "total": total,
@@ -153,7 +164,8 @@ def get_advert_detail(advert_id):
                         specialty_cipher, specialty_text,
                         supervisor_name, supervisor_work,
                         council_cipher, defend_org,
-                        autoref_url, autoref_path
+                        autoref_url, autoref_path,
+                        city, organization_name
                  FROM adverts WHERE id = ?""", (advert_id,))
     row = c.fetchone()
 
@@ -174,6 +186,8 @@ def get_advert_detail(advert_id):
         "defend_org": row[9],
         "autoref_url": row[10],
         "autoref_path": row[11],
+        "city": row[12],
+        "organization_name": row[13],
     }
 
     c.execute("SELECT pub_number, authors, title, journal, year, pages, email, source_url, source_name FROM publications WHERE advert_id = ? ORDER BY pub_number", (advert_id,))
@@ -197,14 +211,10 @@ def get_advert_detail(advert_id):
 
 
 def needs_email_search(advert_id):
-    """Проверяет, есть ли публикации без email info.
-
-    Возвращает True если хотя бы одна публикация не имеет email или source.
-    """
+    """Проверяет, есть ли публикации без email info."""
     conn = get_db()
     c = conn.cursor()
 
-    # Check if any publication lacks email info
     c.execute("""SELECT COUNT(*) FROM publications
                  WHERE advert_id = ? AND (email IS NULL OR email = ''
                  OR source_url IS NULL OR source_url = '')""", (advert_id,))
@@ -258,10 +268,7 @@ def increment_pub_extract_attempts(advert_id):
 
 
 def is_new_defense(fio, date_defend):
-    """Проверяет, есть ли в БД защита с таким же ФИО и датой защиты.
-    
-    Возвращает True если защита НОВАЯ (нет записей с таким fio + date_defend).
-    """
+    """Проверяет, есть ли в БД защита с таким же ФИО и датой защиты."""
     conn = get_db()
     c = conn.cursor()
     if not fio or not date_defend:
@@ -320,14 +327,12 @@ def get_group_for_cipher(cipher):
 
 
 def get_all_specialties():
-    import os
-    import re
-    sci_spec_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sci_spec.txt")
+    """Загружает список всех специальностей из sci_spec.txt."""
     specs_by_group = {}
     for group_key in SPECIALTY_GROUPS:
         specs_by_group[group_key] = []
-    if os.path.exists(sci_spec_file):
-        with open(sci_spec_file, encoding="utf-8") as f:
+    if os.path.exists(SCI_SPEC_FILE):
+        with open(SCI_SPEC_FILE, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -357,29 +362,22 @@ def get_all_specialties():
 # ======================== CLUSTER SUPPORT ========================
 
 def load_cluster_specialties(cluster_id=None):
-    """Загружает специальности, относящиеся к кластеру.
-    
-    Если cluster_id=None, возвращает словарь всех кластеров.
-    Если cluster_id=int, возвращает список шифров специальностей для этого кластера.
-    """
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dep-clust-new.csv")
-    if not os.path.exists(csv_path):
+    """Загружает специальности, относящиеся к кластеру."""
+    if not os.path.exists(CLUSTER_CSV_PATH):
         return {} if cluster_id is None else []
 
     all_clusters = {}
-    with open(csv_path, "r", encoding="utf-8") as f:
+    with open(CLUSTER_CSV_PATH, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            # Формат: "ID, Название кафедры, 1.1.1. - Название, 1.1.2. - Название, ..."
             parts = line.split(", ", 2)
             if len(parts) < 2:
                 continue
             cid = int(parts[0])
             rest = parts[2] if len(parts) > 2 else ""
 
-            # Извлекаем шифры специальностей (формат: 1.1.1. - Название)
             specs = re.findall(r'(\d+\.\d+\.\d+)\.\s+-\s+', rest)
             all_clusters[cid] = {
                 "dept_name": parts[1],
@@ -396,6 +394,42 @@ def get_cluster_info(cluster_id):
     clusters = load_cluster_specialties()
     info = clusters.get(cluster_id, {})
     dept_name = info.get("dept_name", "")
-    # Убираем повторяющееся "Кафедра"
     dept_name = re.sub(r'Кафедра\s+', 'Кафедра ', dept_name) if dept_name else ""
     return dept_name
+
+
+def get_unique_cities():
+    """Возвращает список уникальных городов из БД."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT city FROM adverts WHERE city IS NOT NULL AND city != '' ORDER BY city")
+    cities = [row[0] for row in c.fetchall()]
+    conn.close()
+    return cities
+
+
+def get_city_stats():
+    """Возвращает статистику по городам для карты.
+
+    Возвращает список: [{"city": str, "count": int, "specialties": {cipher: count}}, ...]
+    """
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT city, specialty_cipher, COUNT(*) as cnt
+        FROM adverts
+        WHERE city IS NOT NULL AND city != ''
+        GROUP BY city, specialty_cipher
+        ORDER BY city, cnt DESC
+    """)
+    rows = c.fetchall()
+    conn.close()
+
+    city_data = {}
+    for city, cipher, count in rows:
+        if city not in city_data:
+            city_data[city] = {"city": city, "count": 0, "specialties": {}}
+        city_data[city]["count"] += count
+        city_data[city]["specialties"][cipher] = city_data[city]["specialties"].get(cipher, 0) + count
+
+    return list(city_data.values())

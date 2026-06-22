@@ -119,12 +119,12 @@ class TestIntegrationSearch:
 
 
 class TestIntegrationDetail:
-    """Интеграционные тесты детального просмотра."""
+    """Интеграционные тесты детальной информации."""
 
     @pytest.fixture
     def db_with_detail(self, tmp_path):
-        """БД с полными данными."""
-        db_path = tmp_path / "vak.db"
+        """Создаёт БД с полными тестовыми данными."""
+        db_path = tmp_path / "vak_detail.db"
         conn = sqlite3.connect(str(db_path))
         c = conn.cursor()
 
@@ -137,6 +137,7 @@ class TestIntegrationDetail:
             autoref_pdf_url TEXT, downloaded INTEGER DEFAULT 0,
             email_search_attempts INTEGER DEFAULT 0,
             pub_extract_attempts INTEGER DEFAULT 0,
+            city TEXT, organization_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
         c.execute("""CREATE TABLE publications (

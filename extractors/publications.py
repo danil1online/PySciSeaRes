@@ -10,8 +10,10 @@ from config import (
     LLM_TIMEOUT, LLM_MAX_TOKENS, LLM_TEMPERATURE,
     MAX_PUBLICATIONS, LLM_RESPONSES_DIR,
 )
-
 from .cache import get_cached, cache_result
+from logging_config import get_logger
+
+logger = get_logger("publications")
 
 PUB_SYSTEM_PROMPT = (
     "Ты — помощник по извлечению библиографических данных из авторефератов диссертаций. "
@@ -123,6 +125,7 @@ PUB_USER_PROMPT_JSON = (
 
 
 def _send_to_llm(text):
+    logger.debug("Sending text to LLM for publications extraction")
     prompt = (
         "Извлеки из текста ТОЛЬКО реальные научные публикации автора. "
         "Публикация — это точное цитирование: ФИО автора, название работы, журнал/источник, год, том/номер, страницы. "
@@ -182,6 +185,7 @@ def _send_to_llm_json(text):
     (LLM-сервер может "засыпать", cold start занимает 30-90 сек).
     Использует кэш: если ответ уже есть, возвращает его без запроса.
     """
+    logger.debug("Sending text to JSON-LLM for publications extraction")
     user_prompt = PUB_USER_PROMPT_JSON.format(text=text)
     start = time.time()
 
@@ -461,6 +465,7 @@ def extract_publications_from_pdf_text(text):
 
     Возвращает: (publications, found_section, time_taken)
     """
+    logger.debug(f"Extracting publications from text ({len(text)} chars)")
     idx, found = _find_publications_section(text)
 
     # Берём последние ~5 страниц текста для JSON-LLM

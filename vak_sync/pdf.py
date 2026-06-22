@@ -9,6 +9,9 @@ import pdfplumber
 from bs4 import BeautifulSoup
 
 from config import LLM_API_URL, LLM_MODEL, HEADERS, LLM_TIMEOUT, LLM_MAX_TOKENS, LLM_TEMPERATURE, MIN_SIZE, AUTOREFS_DIR
+from logging_config import get_logger
+
+logger = get_logger("pdf")
 
 
 # ======================== UTILITY ========================
@@ -22,10 +25,7 @@ def sanitize_filename(name):
 
 
 def _url_encode_path(url):
-    """Кодирует пробелы и опасные ASCII-символы в пути и query части URL.
-
-    Не кодирует неблокальные символы (кириллицу, UTF-8).
-    """
+    """Кодирует пробелы и опасные ASCII-символы в пути и query части URL."""
     from urllib.parse import urlparse, urlunparse, unquote
     parsed = urlparse(url)
 
@@ -42,7 +42,7 @@ def _url_encode_path(url):
 # ======================== PDF CHECK ========================
 
 def _check_pdf_page_count(url):
-    """Проверяет количество страниц в PDF-файле. Возвращает число или None при ошибке."""
+    """Проверяет количество страниц в PDF-файле."""
     try:
         url = _url_encode_path(url)
         resp = requests.get(
@@ -67,24 +67,14 @@ def _read_pdf_full(pdf_path):
                 parts.append(t)
             return "\n".join(parts)
     except Exception as e:
-        print(f"\n  Ошибка чтения PDF {pdf_path}: {e}")
+        logger.error(f"Error reading PDF {pdf_path}: {e}")
         return ""
 
 
 # ======================== PDF SEARCH ========================
 
 def find_autoref_pdf_from_page(url, fio="", date_defend=""):
-    """Многоуровневый поиск PDF-автореферата на HTML-странице.
-
-    Стратегии (по приоритету):
-    1. Ссылка с текстом "автореферат" + .pdf
-    2. Ссылка .pdf, рядом в HTML-тексте есть слово "автореферат"
-    3. Ссылка с действием "посмотреть"/"скачать" + .pdf
-    4. Умный фоллбэк — сортировка кандидатов с учётом имён файлов
-    5. LLM-анализ страницы, если фоллбэк не уверен
-
-    PDF с >50 страницами пропускаются (вероятно, полный текст диссертации).
-    """
+    """Многоуровневый поиск PDF-автореферата на HTML-странице."""
     try:
         resp = requests.get(
             url,
@@ -93,14 +83,13 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
         )
         resp.raise_for_status()
     except Exception as e:
-        print(f"  Ошибка загрузки страницы {url}: {e}")
+        logger.error(f"Error loading page {url}: {e}")
         return None
 
     soup = BeautifulSoup(resp.text, "html.parser")
     base_url = url
 
     def resolve_href(href):
-        """Резолвит относительные URL."""
         if not href:
             return ""
         if href.startswith("http"):
@@ -109,12 +98,10 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
         return _url_encode_path(urljoin(base_url, href))
 
     def is_pdf(href):
-        """Проверяет, ведёт ли ссылка на PDF по расширению."""
         path = resolve_href(href).split("?")[0].lower()
         return path.endswith(".pdf")
 
     def check_is_pdf_via_head(url):
-        """Проверяет Content-Type через HEAD-запрос (для ссылок без .pdf расширения)."""
         try:
             resp = requests.head(
                 url,
@@ -128,7 +115,6 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
             return False
 
     def get_ancestor_text(element, max_depth=5):
-        """Собирает текст родительских элементов."""
         text = ""
         for i in range(max_depth):
             parent = element.parent
@@ -140,7 +126,6 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
         return text.lower()
 
     def get_sibling_text(element):
-        """Собирает текст соседних элементов (предыдущие и следующие 3 узла)."""
         parts = []
         current = element.previous_sibling
         for _ in range(5):
@@ -159,7 +144,6 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
         return " ".join(parts).lower()
 
     def _is_valid_pdf(url_to_check):
-        """Проверяет PDF на размер страниц (автореферат <=50 стр.)."""
         pages = _check_pdf_page_count(url_to_check)
         if pages is None:
             return False, "Не удалось определить размер PDF"
@@ -168,7 +152,7 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
         return True, f"{pages} стр."
 
     keywords = {"автореферат", "авторерат", "авторефер",
-                  "дипломная", "магистерская", "кандидат", "доктор"}
+                "дипломная", "магистерская", "кандидат", "доктор"}
     action_words = {"посмотреть", "посмотреть файл", "скачать", "скачать файл",
                     "открыть", "открыть файл", "загрузить", "загрузить файл",
                     "download", "view", "open", "click"}
@@ -221,7 +205,7 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
         all_pdf_candidates.append((full_url, "s4_fallback", text, page_count))
 
     if not all_pdf_candidates:
-        print(f"    PDF-файлы не найдены")
+        logger.debug("No PDF files found")
         return None
 
     def autoref_score(item):
@@ -269,11 +253,7 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
     best_score = autoref_score(all_pdf_candidates[0])
     second_score = autoref_score(all_pdf_candidates[1]) if len(all_pdf_candidates) > 1 else 0
 
-    print(f"    Топ-3 кандидата (скор | стратегия | файл):")
-    for i, (url, strat, txt, pc) in enumerate(all_pdf_candidates[:3], 1):
-        sc = autoref_score((url, strat, txt, pc))
-        fname = url.split("/")[-1].split("?")[0][:60]
-        print(f"      [{i}] скор={sc:+d} | {strat} | {fname} ({pc} стр.)")
+    logger.debug(f"Top candidates: {[(autoref_score((u,s,t,p)), s, u.split('/')[-1][:40]) for u,s,t,p in all_pdf_candidates[:3]]}")
 
     score_gap = best_score - second_score
 
@@ -283,7 +263,7 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
             info = f"{pc} стр."
             candidates_for_llm.append((url, strategy, text, info))
 
-        print(f"    [5] Неоднозначность (скор={best_score}, разрыв={score_gap}) — анализ через LLM...")
+        logger.debug(f"Ambiguity (score={best_score}, gap={score_gap}) — LLM analysis...")
         pdf_url = _find_autoref_with_llm(
             str(soup), str(resp.text), base_url,
             candidates_for_llm, fio, date_defend
@@ -291,7 +271,7 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
         if pdf_url:
             pages = _check_pdf_page_count(pdf_url)
             info_str = f"{pages} стр." if pages else "неизвестно"
-            print(f"    LLM выбрал: {pdf_url} ({info_str})")
+            logger.info(f"LLM selected: {pdf_url} ({info_str})")
             return pdf_url
     elif best_score < -50:
         candidates_for_llm = []
@@ -306,14 +286,14 @@ def find_autoref_pdf_from_page(url, fio="", date_defend=""):
         if pdf_url:
             pages = _check_pdf_page_count(pdf_url)
             info_str = f"{pages} стр." if pages else "неизвестно"
-            print(f"    LLM выбрал: {pdf_url} ({info_str})")
+            logger.info(f"LLM selected: {pdf_url} ({info_str})")
             return pdf_url
     else:
-        strategy_name = {"s1_keyword_text": "С1: текст ссылки",
-                         "s2_context": "С2: контекст",
-                         "s3_action_context": "С3: действие+контекст",
-                         "s4_fallback": "С4: фоллбэк"}.get(best_strategy, best_strategy)
-        print(f"    [4] {strategy_name}: {best_url} ({best_pages} стр., скор={best_score})")
+        strategy_name = {"s1_keyword_text": "S1: link text",
+                         "s2_context": "S2: context",
+                         "s3_action_context": "S3: action+context",
+                         "s4_fallback": "S4: fallback"}.get(best_strategy, best_strategy)
+        logger.debug(f"{strategy_name}: {best_url} ({best_pages} pages, score={best_score})")
         return best_url
 
     return None
@@ -341,9 +321,9 @@ def _find_autoref_with_llm(html_snippet, full_html, base_url, candidates_with_in
         filename = url.split("/")[-1].split("?")[0]
         filename = filename.replace("%20", " ").replace("%C3", "И").replace("%23", "#")
         candidate_descriptions.append(
-            f"{idx}. URL: {url}\n   Имя файла: {filename}\n"
-            f"   Текст ссылки: {clean_text}\n"
-            f"   Стратегия: {strategy} | {info_str}"
+            f"{idx}. URL: {url}\n   Filename: {filename}\n"
+            f"   Link text: {clean_text}\n"
+            f"   Strategy: {strategy} | {info_str}"
         )
 
     candidates_text = "\n\n".join(candidate_descriptions)
@@ -360,26 +340,23 @@ def _find_autoref_with_llm(html_snippet, full_html, base_url, candidates_with_in
         html_context = html_snippet[:8000]
 
     system_prompt = (
-        "Ты — помощник по поиску автореферата диссертации на веб-странице. "
-        "Тебе предоставлена HTML-страница с ссылками на PDF-файлы. "
-        "Твоя задача — найти ссылку именно на АВТОРЕФЕРАТ диссертации. "
-        "Автореферат — это краткое изложение диссертации (обычно 15-50 страниц). "
-        "НЕ выбирай: полный текст диссертации, отзывы, рецензии, протоколы, "
-        "сопроводительные документы, методические указания. "
-        "Выбери номер одного кандидата (из списка 1..N), который является авторефератом. "
-        "Ответь ТОЛЬКО числом — номер кандидата. Если не можешь определить — верни слово NONE."
+        "You are an assistant searching for a dissertation abstract (автореферат) on a web page. "
+        "Find the link to the ABSTRACT (usually 15-50 pages). "
+        "DO NOT select: full dissertation text, reviews, protocols, cover letters. "
+        "Return ONLY the number of the candidate (1..N) that is the abstract. "
+        "If unsure — return NONE."
     )
 
-    fio_desc = f"ФИО кандидата: {fio}" if fio else ""
-    defend_desc = f"Дата защиты: {date_defend}" if date_defend else ""
+    fio_desc = f"Candidate: {fio}" if fio else ""
+    defend_desc = f"Defense date: {date_defend}" if date_defend else ""
 
     user_prompt = (
-        f"Страница: {page_title}\n"
+        f"Page: {page_title}\n"
         f"{fio_desc}\n"
         f"{defend_desc}\n\n"
-        f"Контекст страницы (текст из body):\n{html_context}\n\n"
-        f"Список PDF-кандидатов:\n{candidates_text}\n\n"
-        f"На какой номер кандидата ведёт ссылка на автореферат?"
+        f"Page context (text from body):\n{html_context}\n\n"
+        f"Candidates list:\n{candidates_text}\n\n"
+        f"Which candidate number is the abstract?"
     )
 
     try:
@@ -400,17 +377,16 @@ def _find_autoref_with_llm(html_snippet, full_html, base_url, candidates_with_in
         resp.raise_for_status()
         answer = resp.json()["choices"][0]["message"]["content"].strip()
 
-        import re as re2
-        num_match = re2.search(r'\b([1-9]|10)\b', answer)
+        num_match = re.search(r'\b([1-9]|10)\b', answer)
         if num_match:
             chosen_idx = int(num_match.group(1)) - 1
             if 0 <= chosen_idx < len(candidate_items):
                 return candidate_items[chosen_idx][0]
 
-        print(f"    LLM ответ: '{answer}', фоллбэк на первый кандидат")
+        logger.warning(f"LLM answer: '{answer}', fallback to first candidate")
         return candidate_items[0][0]
     except Exception as e:
-        print(f"    LLM ошибка: {e}, фоллбэк на первый кандидат")
+        logger.error(f"LLM error: {e}, fallback to first candidate")
         return candidate_items[0][0] if candidate_items else None
 
 
@@ -429,7 +405,7 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3, previous_pdf_
         is_potential_pdf = any(ind in url_path for ind in pdf_indicators)
 
         if is_potential_pdf:
-            print(f"  Проверка потенциального PDF: {autoref_url}...", end="")
+            logger.debug(f"Checking potential PDF: {autoref_url}...")
             try:
                 from urllib.parse import unquote
                 decoded_url = unquote(autoref_url)
@@ -443,34 +419,29 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3, previous_pdf_
                 content_type = resp.headers.get("Content-Type", "").lower()
                 if "application/pdf" in content_type:
                     resolved_pdf_url = resp.url
-                    print(f" PDF ({content_type})")
+                    logger.debug(f"PDF detected ({content_type})")
                 else:
-                    print(f" не PDF ({content_type})")
-                    print(f"  Поиск PDF на странице {autoref_url}...", end="")
+                    logger.debug(f"Not PDF ({content_type}), searching page...")
                     resolved_pdf_url = find_autoref_pdf_from_page(autoref_url, fio=fio, date_defend=date_defend)
                     if not resolved_pdf_url:
                         return None, "Не PDF (ссылка не найдена)", autoref_url
-                    print(f" -> {resolved_pdf_url}")
             except Exception as e:
-                print(f" Ошибка проверки: {e}")
-                print(f"  Поиск PDF на странице {autoref_url}...", end="")
+                logger.error(f"Check error: {e}, searching page...")
                 resolved_pdf_url = find_autoref_pdf_from_page(autoref_url, fio=fio, date_defend=date_defend)
                 if not resolved_pdf_url:
                     return None, "Не PDF (ссылка не найдена)", autoref_url
-                print(f" -> {resolved_pdf_url}")
         else:
-            print(f"  Поиск PDF на странице {autoref_url}...", end="")
+            logger.debug(f"Searching PDF on page {autoref_url}...")
             resolved_pdf_url = find_autoref_pdf_from_page(autoref_url, fio=fio, date_defend=date_defend)
             if not resolved_pdf_url:
                 return None, "Не PDF (ссылка не найдена)", autoref_url
-            print(f" -> {resolved_pdf_url}")
     else:
         resolved_pdf_url = autoref_url
 
     if previous_pdf_url is not None and resolved_pdf_url != previous_pdf_url:
-        print(f"\n    Ссылка на автореферат изменилась, скачиваем заново")
-        print(f"    Старая: {previous_pdf_url}")
-        print(f"    Новая:  {resolved_pdf_url}")
+        logger.info(f"PDF URL changed, downloading again")
+        logger.debug(f"  Old: {previous_pdf_url}")
+        logger.debug(f"  New: {resolved_pdf_url}")
     elif previous_pdf_url is not None:
         resolved_pdf_url = previous_pdf_url
 
@@ -488,6 +459,8 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3, previous_pdf_
             from urllib.parse import unquote
             decoded_url = unquote(resolved_pdf_url)
             encoded_url = _url_encode_path(decoded_url)
+
+            # NOTE: verify=False is used because VAK API may have self-signed certs
             resp = requests.get(
                 encoded_url, stream=True, timeout=120,
                 headers={"User-Agent": HEADERS["User-Agent"] if "User-Agent" in HEADERS else "Mozilla/5.0"},
@@ -508,12 +481,13 @@ def download_autoref(autoref_url, fio, date_defend, max_retries=3, previous_pdf_
                 os.remove(save_path)
                 return None, f"Слишком маленький файл ({actual_size // 1024} КБ)", resolved_pdf_url
 
+            logger.info(f"Downloaded: {filename} ({actual_size // 1024} KB)")
             return save_path, "OK", resolved_pdf_url
 
         except requests.exceptions.HTTPError as e:
             status_code = e.response.status_code if e.response else "?"
             if attempt < max_retries - 1:
-                print(f"  HTTP {status_code}, повтор...")
+                logger.warning(f"HTTP {status_code}, retry...")
             else:
                 return None, f"HTTP {status_code}", resolved_pdf_url
         except Exception as e:
@@ -555,6 +529,6 @@ def extract_specialty_from_pdf(pdf_path):
             return cipher, ""
 
     except Exception as e:
-        print(f"  Ошибка извлечения specialty {pdf_path}: {e}")
+        logger.error(f"Specialty extraction error {pdf_path}: {e}")
 
     return None, None

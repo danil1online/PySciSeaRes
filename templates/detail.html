@@ -28,6 +28,33 @@
         <span class="pub-badge-large">{{ (advert.publications or [])|length }} публикаций</span>
     </div>
 
+    {% if advert.city or advert.organization_name %}
+    <div class="detail-section">
+        <table class="detail-table">
+            {% if advert.city %}
+            <tr>
+                <td class="detail-label">Город:</td>
+                <td>
+                    <div class="view-row">
+                        <span class="view-value">{{ advert.city }}</span>
+                    </div>
+                </td>
+            </tr>
+            {% endif %}
+            {% if advert.organization_name %}
+            <tr>
+                <td class="detail-label">Организация:</td>
+                <td>
+                    <div class="view-row">
+                        <span class="view-value">{{ advert.organization_name }}</span>
+                    </div>
+                </td>
+            </tr>
+            {% endif %}
+        </table>
+    </div>
+    {% endif %}
+
     <div class="detail-section">
         <table class="detail-table">
             <tr>
@@ -192,7 +219,13 @@
     <div class="detail-section" id="saveSection">
         <div class="save-actions">
             <button class="btn btn-primary" id="saveAllBtn">💾 Сохранить все изменения</button>
+            <button class="btn btn-secondary" id="searchEmailBtn">🔍 Найти email</button>
         </div>
+    </div>
+
+    <div class="detail-section" id="emailSearchResults" style="display:none;">
+        <h3>Результаты поиска email (не сохраняются в БД)</h3>
+        <div id="emailResultsContent"></div>
     </div>
 </div>
 
@@ -201,6 +234,7 @@ const advertId = "{{ advert.id }}";
 
 document.getElementById('addPubBtn').addEventListener('click', addPublication);
 document.getElementById('saveAllBtn').addEventListener('click', saveAll);
+document.getElementById('searchEmailBtn').addEventListener('click', searchEmails);
 
 function deletePublication(el) {
     const item = el.closest('.pub-item');
@@ -389,6 +423,50 @@ function saveAll() {
     })
     .catch(function(err) {
         alert('Ошибка соединения: ' + err);
+    });
+}
+
+function searchEmails() {
+    const resultsEl = document.getElementById('emailSearchResults');
+    const contentEl = document.getElementById('emailResultsContent');
+    resultsEl.style.display = 'block';
+    contentEl.innerHTML = '<div class="loading">Поиск email...</div>';
+
+    fetch('/api/search_email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ advert_id: advertId })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.error) {
+            contentEl.innerHTML = '<div class="error">Ошибка: ' + data.error + '</div>';
+            return;
+        }
+        if (!data.results || data.results.length === 0) {
+            contentEl.innerHTML = '<p>Результаты не найдены</p>';
+            return;
+        }
+        let html = '';
+        data.results.forEach(function(res) {
+            html += '<div class="email-result-item" style="margin: 8px 0; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">';
+            html += '<strong>' + (res.pub_number || '') + '. ' + (res.title || 'Без названия') + '</strong><br>';
+            if (res.emails && res.emails.length > 0) {
+                res.emails.forEach(function(email) {
+                    html += '<a href="mailto:' + email + '" class="email-link">' + email + '</a> ';
+                });
+            } else {
+                html += '<em>Email не найден</em>';
+            }
+            if (res.source_url) {
+                html += '<br><a href="' + res.source_url + '" target="_blank">Источник: ' + (res.source_name || 'ссылка') + '</a>';
+            }
+            html += '</div>';
+        });
+        contentEl.innerHTML = html;
+    })
+    .catch(function(err) {
+        contentEl.innerHTML = '<div class="error">Ошибка: ' + err.message + '</div>';
     });
 }
 
