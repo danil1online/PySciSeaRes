@@ -44,17 +44,9 @@ logger = sync_logger
 
 
 def _print_and_log(msg, level="INFO"):
-    """Выводит сообщение в stdout и в лог."""
+    """Выводит сообщение в stdout."""
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] {level}: {msg}")
-    if level == "ERROR":
-        _print_and_log(msg, "ERROR")
-    elif level == "WARNING":
-        _print_and_log(msg, "WARNING")
-    elif level == "DEBUG":
-        _print_and_log(msg, "DEBUG")
-    else:
-        _print_and_log(msg)
 
 
 def _search_publication_url(pub, autoref_text):
