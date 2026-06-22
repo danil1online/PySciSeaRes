@@ -17,8 +17,9 @@ def init_db():
     """Инициализирует БД: создаёт таблицы, индексы и пользователей."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
 
-    # Initialize users (creates default admin if not exists)
+    # Initialize users (creates default admin if not exists) - uses its own connection
     try:
         from auth import init_users as _init_users
         _init_users()
@@ -92,8 +93,6 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
-    c.execute("PRAGMA journal_mode=WAL")
-
     indexes = [
         "CREATE INDEX IF NOT EXISTS idx_adverts_specialty ON adverts(specialty_cipher)",
         "CREATE INDEX IF NOT EXISTS idx_adverts_date_defend ON adverts(date_defend)",
@@ -111,5 +110,5 @@ def init_db():
             pass
 
     conn.commit()
+    conn.close()
     logger.debug(f"Database initialized: {DB_PATH}")
-    return conn

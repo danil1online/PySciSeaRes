@@ -202,7 +202,8 @@ class TestIntegrationDBInit:
         vak_db.DB_PATH = str(test_db)
 
         try:
-            conn = init_db()
+            init_db()
+            conn = sqlite3.connect(str(test_db))
 
             # Проверяем, что WAL режим включён
             c = conn.cursor()

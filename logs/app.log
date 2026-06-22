@@ -1207,3 +1207,180 @@
 2026-06-22 22:22:40 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
 2026-06-22 22:23:03 [ERROR] vak.supervisor: LLM request error for supervisor: Timeout
 2026-06-22 22:23:03 [ERROR] vak.supervisor: LLM request error for supervisor: Timeout
+2026-06-22 23:21:10 [INFO] vak.auth: Пользователь создан: testuser
+2026-06-22 23:21:10 [INFO] vak.auth: Пользователь создан: testuser
+2026-06-22 23:21:10 [WARNING] vak.auth: Пользователь уже существует: testuser
+2026-06-22 23:21:11 [INFO] vak.auth: Пользователь создан: testuser
+2026-06-22 23:21:11 [INFO] vak.auth: Пользователь создан: adminuser
+2026-06-22 23:21:11 [INFO] vak.auth: Пользователь создан: loginuser
+2026-06-22 23:21:12 [INFO] vak.auth: Успешный вход: loginuser
+2026-06-22 23:21:12 [INFO] vak.auth: Пользователь создан: loginuser
+2026-06-22 23:21:12 [WARNING] vak.auth: Неудачная попытка входа: loginuser
+2026-06-22 23:21:12 [WARNING] vak.auth: Неудачная попытка входа: nonexistent
+2026-06-22 23:21:13 [INFO] vak.auth: Пользователь создан с кластером: clusteruser cluster_id=5
+2026-06-22 23:21:13 [INFO] vak.auth: Успешный вход: clusteruser
+2026-06-22 23:21:13 [INFO] vak.auth: Пользователь создан: deletetest
+2026-06-22 23:21:13 [INFO] vak.auth: Пользователь удалён: deletetest
+2026-06-22 23:21:13 [INFO] vak.auth: Пользователь создан: user1
+2026-06-22 23:21:14 [INFO] vak.auth: Пользователь создан: user2
+2026-06-22 23:21:14 [INFO] vak.auth: Пользователь создан с кластером: clusteruser cluster_id=3
+2026-06-22 23:21:14 [INFO] vak.auth: Пользователь создан с кластером: nocluser cluster_id=None
+2026-06-22 23:21:14 [INFO] vak.auth: Пользователь создан с кластером: dupuser cluster_id=1
+2026-06-22 23:21:15 [WARNING] vak.auth: Пользователь уже существует: dupuser
+2026-06-22 23:21:15 [INFO] vak.cache: Cleaned up 1 expired cache files
+2026-06-22 23:21:15 [INFO] vak.vak_api: Loaded 3 specialties from /tmp/pytest-of-user/pytest-92/test_read_with_separator0/sci_spec.txt
+2026-06-22 23:21:15 [ERROR] vak.vak_api: File not found: /tmp/pytest-of-user/pytest-92/test_read_missing_file0/missing.txt
+2026-06-22 23:21:15 [INFO] vak.vak_api: Loaded 2 specialties from /tmp/pytest-of-user/pytest-92/test_read_empty_lines0/sci_spec.txt
+2026-06-22 23:22:28 [INFO] vak.auth: Пользователь создан: testuser
+2026-06-22 23:22:28 [INFO] vak.auth: Пользователь создан: testuser
+2026-06-22 23:22:28 [WARNING] vak.auth: Пользователь уже существует: testuser
+2026-06-22 23:22:29 [INFO] vak.auth: Пользователь создан: testuser
+2026-06-22 23:22:29 [INFO] vak.auth: Пользователь создан: adminuser
+2026-06-22 23:22:29 [INFO] vak.auth: Пользователь создан: loginuser
+2026-06-22 23:22:30 [INFO] vak.auth: Успешный вход: loginuser
+2026-06-22 23:22:30 [INFO] vak.auth: Пользователь создан: loginuser
+2026-06-22 23:22:30 [WARNING] vak.auth: Неудачная попытка входа: loginuser
+2026-06-22 23:22:30 [WARNING] vak.auth: Неудачная попытка входа: nonexistent
+2026-06-22 23:22:30 [INFO] vak.auth: Пользователь создан с кластером: clusteruser cluster_id=5
+2026-06-22 23:22:31 [INFO] vak.auth: Успешный вход: clusteruser
+2026-06-22 23:22:31 [INFO] vak.auth: Пользователь создан: deletetest
+2026-06-22 23:22:31 [INFO] vak.auth: Пользователь удалён: deletetest
+2026-06-22 23:22:31 [INFO] vak.auth: Пользователь создан: user1
+2026-06-22 23:22:32 [INFO] vak.auth: Пользователь создан: user2
+2026-06-22 23:22:32 [INFO] vak.auth: Пользователь создан с кластером: clusteruser cluster_id=3
+2026-06-22 23:22:32 [INFO] vak.auth: Пользователь создан с кластером: nocluser cluster_id=None
+2026-06-22 23:22:32 [INFO] vak.auth: Пользователь создан с кластером: dupuser cluster_id=1
+2026-06-22 23:22:33 [WARNING] vak.auth: Пользователь уже существует: dupuser
+2026-06-22 23:22:33 [INFO] vak.cache: Cleaned up 1 expired cache files
+2026-06-22 23:22:33 [INFO] vak.vak_api: Loaded 3 specialties from /tmp/pytest-of-user/pytest-93/test_read_with_separator0/sci_spec.txt
+2026-06-22 23:22:33 [ERROR] vak.vak_api: File not found: /tmp/pytest-of-user/pytest-93/test_read_missing_file0/missing.txt
+2026-06-22 23:22:33 [INFO] vak.vak_api: Loaded 2 specialties from /tmp/pytest-of-user/pytest-93/test_read_empty_lines0/sci_spec.txt
+2026-06-22 23:22:39 [INFO] vak.pdf: LLM selected: https://example.com/any.pdf (40 стр.)
+2026-06-22 23:22:40 [ERROR] vak.pdf: Error loading page http://127.0.0.1:19908/page: 404 Client Error: Not Found for url: http://127.0.0.1:19908/page
+2026-06-22 23:22:41 [ERROR] vak.pdf: Error loading page http://example.com/page: Network error
+2026-06-22 23:22:42 [INFO] vak.pdf: LLM selected: https://external.com/external.pdf (30 стр.)
+2026-06-22 23:22:44 [INFO] vak.pdf: LLM selected: https://example.com/avtoref.pdf (5 стр.)
+2026-06-22 23:22:46 [INFO] vak.pdf: LLM selected: https://example.com/materialy.pdf (20 стр.)
+2026-06-22 23:22:46 [INFO] vak.pdf: LLM selected: https://example.com/avtoref.pdf (20 стр.)
+2026-06-22 23:22:49 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:49 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:49 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:49 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:50 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:50 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:50 [INFO] vak: User logged in: admin
+2026-06-22 23:22:50 [INFO] vak: User logged in: admin
+2026-06-22 23:22:50 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:50 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:51 [WARNING] vak.auth: Неудачная попытка входа: admin
+2026-06-22 23:22:51 [WARNING] vak.auth: Неудачная попытка входа: admin
+2026-06-22 23:22:51 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:51 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:51 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:51 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:51 [INFO] vak: User logged in: admin
+2026-06-22 23:22:51 [INFO] vak: User logged in: admin
+2026-06-22 23:22:52 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:52 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:52 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:52 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:52 [INFO] vak.auth: Пользователь создан с кластером: newuser1 cluster_id=0
+2026-06-22 23:22:52 [INFO] vak.auth: Пользователь создан с кластером: newuser1 cluster_id=0
+2026-06-22 23:22:53 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:53 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:53 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:53 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:54 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:54 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:54 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:54 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:54 [INFO] vak: User logged in: admin
+2026-06-22 23:22:54 [INFO] vak: User logged in: admin
+2026-06-22 23:22:54 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:54 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:55 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:55 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:55 [INFO] vak: User logged in: admin
+2026-06-22 23:22:55 [INFO] vak: User logged in: admin
+2026-06-22 23:22:55 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:55 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:55 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:55 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:55 [INFO] vak: User logged in: admin
+2026-06-22 23:22:55 [INFO] vak: User logged in: admin
+2026-06-22 23:22:56 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:56 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:56 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:56 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:56 [INFO] vak: User logged in: admin
+2026-06-22 23:22:56 [INFO] vak: User logged in: admin
+2026-06-22 23:22:56 [INFO] vak: Exported 0 adverts to vak_export_20260622_232256.xlsx
+2026-06-22 23:22:56 [INFO] vak: Exported 0 adverts to vak_export_20260622_232256.xlsx
+2026-06-22 23:22:56 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:56 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:57 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:57 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:57 [INFO] vak: User logged in: admin
+2026-06-22 23:22:57 [INFO] vak: User logged in: admin
+2026-06-22 23:22:57 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:57 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:57 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:57 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:57 [INFO] vak: User logged in: admin
+2026-06-22 23:22:57 [INFO] vak: User logged in: admin
+2026-06-22 23:22:58 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:58 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:58 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:58 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:58 [INFO] vak: User logged in: admin
+2026-06-22 23:22:58 [INFO] vak: User logged in: admin
+2026-06-22 23:22:58 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:58 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:59 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:59 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:59 [INFO] vak: User logged in: admin
+2026-06-22 23:22:59 [INFO] vak: User logged in: admin
+2026-06-22 23:22:59 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:59 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:22:59 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:59 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:22:59 [INFO] vak: User logged in: admin
+2026-06-22 23:22:59 [INFO] vak: User logged in: admin
+2026-06-22 23:23:00 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:00 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:00 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:00 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:01 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:23:01 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:23:01 [INFO] vak: User logged in: admin
+2026-06-22 23:23:01 [INFO] vak: User logged in: admin
+2026-06-22 23:23:01 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:01 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:01 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:23:01 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:23:01 [INFO] vak: User logged in: admin
+2026-06-22 23:23:01 [INFO] vak: User logged in: admin
+2026-06-22 23:23:01 [INFO] vak.auth: Пользователь создан с кластером: testadminuser cluster_id=None
+2026-06-22 23:23:01 [INFO] vak.auth: Пользователь создан с кластером: testadminuser cluster_id=None
+2026-06-22 23:23:02 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:02 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:02 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:23:02 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:23:02 [INFO] vak: User logged in: admin
+2026-06-22 23:23:02 [INFO] vak: User logged in: admin
+2026-06-22 23:23:02 [INFO] vak.auth: Пользователь создан с кластером: deleteme cluster_id=None
+2026-06-22 23:23:02 [INFO] vak.auth: Пользователь создан с кластером: deleteme cluster_id=None
+2026-06-22 23:23:02 [INFO] vak.auth: Пользователь удалён: deleteme
+2026-06-22 23:23:02 [INFO] vak.auth: Пользователь удалён: deleteme
+2026-06-22 23:23:03 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:03 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:03 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:23:03 [INFO] vak.auth: Успешный вход: admin
+2026-06-22 23:23:03 [INFO] vak: User logged in: admin
+2026-06-22 23:23:03 [INFO] vak: User logged in: admin
+2026-06-22 23:23:03 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:03 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:04 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:04 [WARNING] vak.auth: Создан администратор: admin / admin123 (измените пароль!)
+2026-06-22 23:23:25 [ERROR] vak.supervisor: LLM request error for supervisor: Timeout
+2026-06-22 23:23:25 [ERROR] vak.supervisor: LLM request error for supervisor: Timeout
