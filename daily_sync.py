@@ -114,13 +114,13 @@ def _search_publication_url(pub, autoref_text):
     return None, None
 
 
-def _verify_publication_urls(conn, adv_id):
+def _verify_publication_urls(conn, advert_id):
     """Проверяет URL публикаций: открывает страницу и сравнивает название и авторов."""
     import requests
     from bs4 import BeautifulSoup
 
     c = conn.cursor()
-    c.execute("SELECT id, pub_number, title, authors, source_url FROM publications WHERE advert_id = ? AND source_url IS NOT NULL AND source_url != ''", (adv_id,))
+    c.execute("SELECT id, pub_number, title, authors, source_url FROM publications WHERE advert_id = ? AND source_url IS NOT NULL AND source_url != ''", (advert_db_id,))
     pubs = c.fetchall()
 
     if not pubs:
@@ -179,7 +179,7 @@ def _verify_publication_urls(conn, adv_id):
     return verified_count
 
 
-def _extract_publications(conn, adv_id, pdf_path, counters):
+def _extract_publications(conn, advert_id, pdf_path, counters):
     """Извлекает публикации из автореферата и ищет для них URL."""
     _print_and_log("Extracting publications from PDF...")
     counters["extracted"] += 1
@@ -191,7 +191,7 @@ def _extract_publications(conn, adv_id, pdf_path, counters):
         struct_pubs = parse_pub_to_json(raw_pubs)
 
         c = conn.cursor()
-        c.execute("DELETE FROM publications WHERE advert_id = ?", (adv_id,))
+        c.execute("DELETE FROM publications WHERE advert_id = ?", (advert_db_id,))
         urls_found = 0
         for num, p in enumerate(struct_pubs, 1):
             authors = p["authors"]
@@ -211,7 +211,7 @@ def _extract_publications(conn, adv_id, pdf_path, counters):
 
             c.execute(
                 "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email, source_url, source_name) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"], "", url or "", source_name)
+                (advert_id, num, authors, p["title"], p["journal"], p["year"], p["pages"], "", url or "", source_name)
             )
         conn.commit()
 
@@ -221,7 +221,7 @@ def _extract_publications(conn, adv_id, pdf_path, counters):
 
         # Verify publication URLs
         if struct_pubs:
-            verified = _verify_publication_urls(conn, adv_id)
+            verified = _verify_publication_urls(conn, advert_id)
             _print_and_log(f"Publication URL verification: {verified}/{len(struct_pubs)} verified")
 
         return len(struct_pubs), True
@@ -236,7 +236,7 @@ def _extract_publications(conn, adv_id, pdf_path, counters):
 
 def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids):
     """Обрабатывает одно объявление о защите."""
-    adv_id = advert["id"]
+    advert_db_id = advert["id"]
     if adv_id in processed_ids:
         return False
     processed_ids.add(adv_id)
@@ -258,6 +258,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     c = conn.cursor()
 
     new_defense = is_new_defense(fio, date_defend)
+    advert_db_id = detail.get("id") or adv_id
 
     try:
         c.execute("""INSERT OR REPLACE INTO adverts (
@@ -267,7 +268,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
             autoref_url, autoref_path, autoref_pdf_url, downloaded,
             city, organization_name
         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
-            detail.get("id"),
+            advert_db_id,
             detail.get("old_id"),
             detail.get("date_defend"),
             detail.get("fio"),
@@ -287,7 +288,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
         ))
         conn.commit()
 
-        c.execute("SELECT COUNT(*) FROM adverts WHERE id = ?", (adv_id,))
+        c.execute("SELECT COUNT(*) FROM adverts WHERE id = ?", (advert_db_id,))
         if c.fetchone()[0] == 1:
             counters["new"] += 1
         else:
@@ -298,10 +299,10 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
         counters["errors"] += 1
         return True
 
-    c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (adv_id,))
+    c.execute("SELECT COUNT(*) FROM publications WHERE advert_id = ?", (advert_db_id,))
     pub_count = c.fetchone()[0]
 
-    c.execute("SELECT autoref_path, autoref_pdf_url, downloaded FROM adverts WHERE id = ?", (adv_id,))
+    c.execute("SELECT autoref_path, autoref_pdf_url, downloaded FROM adverts WHERE id = ?", (advert_db_id,))
     row = c.fetchone()
     autoref_path = row[0] if row else None
     autoref_pdf_url = row[1] if row else None
@@ -341,19 +342,19 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
         _print_and_log(f"Organization extracted: {org_name}")
 
     c.execute("UPDATE adverts SET autoref_path = ?, autoref_pdf_url = ?, downloaded = 1, city = ?, organization_name = ? WHERE id = ?",
-              (save_path, resolved_url, adv_id, city, org_name))
+              (save_path, resolved_url, advert_db_id, city, org_name))
     conn.commit()
 
     pdf_cipher, pdf_name = extract_specialty_from_pdf(save_path)
     if pdf_name and not spec_name:
         c.execute("UPDATE adverts SET specialty_text = ? WHERE id = ?",
-                  (pdf_name, adv_id))
+                  (pdf_name, advert_db_id))
         _print_and_log(f"Specialty from PDF: {pdf_cipher} - {pdf_name}")
     conn.commit()
 
-    extract_count, extract_ok = _extract_publications(conn, adv_id, save_path, counters)
+    extract_count, extract_ok = _extract_publications(conn, advert_db_id, save_path, counters)
     if extract_ok:
-        increment_pub_extract_attempts(adv_id)
+        increment_pub_extract_attempts(advert_db_id)
         _print_and_log("Publication extraction attempt #1 completed")
 
     _print_and_log("Extracting supervisor...")
@@ -363,7 +364,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
         sup_name = sup.get("supervisor_name")
         sup_work = sup.get("supervisor_work")
         c.execute("UPDATE adverts SET supervisor_name = ?, supervisor_work = ? WHERE id = ?",
-                  (sup_name, sup_work, adv_id))
+                  (sup_name, sup_work, advert_db_id))
         conn.commit()
         if sup_name:
             _print_and_log(f"Supervisor: {sup_name}")
