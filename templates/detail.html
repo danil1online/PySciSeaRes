@@ -28,7 +28,6 @@
         <span class="pub-badge-large">{{ (advert.publications or [])|length }} публикаций</span>
     </div>
 
-    {% if advert.city or advert.organization_name %}
     <div class="detail-section">
         <table class="detail-table">
             {% if advert.city %}
@@ -51,12 +50,6 @@
                 </td>
             </tr>
             {% endif %}
-        </table>
-    </div>
-    {% endif %}
-
-    <div class="detail-section">
-        <table class="detail-table">
             <tr>
                 <td class="detail-label">Дата защиты:</td>
                 <td>

@@ -43,6 +43,71 @@ from search import (
 logger = sync_logger
 
 
+def _search_publication_url(pub, autoref_text):
+    """Ищет URL публикации через DuckDuckGo и научные базы."""
+    import requests
+    from bs4 import BeautifulSoup
+    from extractors.email_search import (
+        _search_duckduckgo, _analyze_ddg_link, _search_semantic_scholar,
+        _search_crossref, _resolve_doi, _titles_match, _find_pdf_url_from_html,
+    )
+
+    pub_title = pub.get('title', '')
+    pub_authors = pub.get('authors', '')
+    pub_year = pub.get('year')
+
+    if isinstance(pub_authors, list):
+        pub_authors = ", ".join(pub_authors)
+
+    # 1. Проверяем DOI в тексте автореферата
+    if autoref_text:
+        doi_patterns = [
+            r'doi[.:]\s*(10\.\d+/[^\s\n]+)',
+            r'https?://doi\.org/(10\.\d+/[^\s\n]+)',
+            r'DOI:\s*(10\.\d+/[^\s\n]+)',
+        ]
+        import re
+        for pattern in doi_patterns:
+            matches = re.findall(pattern, autoref_text, re.IGNORECASE)
+            for doi in matches:
+                doi = doi.strip().rstrip('.;,')
+                if doi and _titles_match(pub_title, ''):
+                    resolved = _resolve_doi(doi)
+                    if resolved and resolved.get('status') == 200:
+                        return resolved['resolved_url'], 'DOI resolver'
+
+    # 2. DuckDuckGo поиск
+    ddg_results = _search_duckduckgo(pub, max_results=5)
+    if ddg_results:
+        for ddg in ddg_results:
+            source = _analyze_ddg_link(ddg, pub_title, pub_authors, pub_year)
+            if source:
+                return source['url'], source.get('source_name', 'DuckDuckGo')
+
+    # 3. Semantic Scholar
+    ss_results = _search_semantic_scholar(pub_title, pub_authors, pub_year)
+    if ss_results:
+        for ss in ss_results:
+            ss_title = ss.get("title", "")
+            if _titles_match(pub_title, ss_title):
+                if ss.get("url"):
+                    return ss['url'], 'Semantic Scholar'
+
+    # 4. Crossref
+    cr_results = _search_crossref(pub_title, pub_authors, pub_year)
+    if cr_results:
+        for cr in cr_results:
+            cr_title = cr.get("title", "")
+            if _titles_match(pub_title, cr_title):
+                doi = cr.get("DOI")
+                if doi:
+                    resolved = _resolve_doi(doi)
+                    if resolved and resolved.get('status') == 200:
+                        return resolved['resolved_url'], 'Crossref'
+
+    return None, None
+
+
 def _verify_publication_urls(conn, adv_id):
     """Проверяет URL публикаций: открывает страницу и сравнивает название и авторов."""
     import requests
@@ -109,7 +174,7 @@ def _verify_publication_urls(conn, adv_id):
 
 
 def _extract_publications(conn, adv_id, pdf_path, counters):
-    """Извлекает публикации из автореферата."""
+    """Извлекает публикации из автореферата и ищет для них URL."""
     logger.info("Extracting publications from PDF...")
     counters["extracted"] += 1
     pdf_full_text = None
@@ -121,17 +186,30 @@ def _extract_publications(conn, adv_id, pdf_path, counters):
 
         c = conn.cursor()
         c.execute("DELETE FROM publications WHERE advert_id = ?", (adv_id,))
+        urls_found = 0
         for num, p in enumerate(struct_pubs, 1):
             authors = p["authors"]
             if isinstance(authors, list):
                 authors = ", ".join(authors)
+
+            # Search for publication URL
+            url = None
+            source_name = ""
+            try:
+                url, source_name = _search_publication_url(p, pdf_full_text)
+                if url:
+                    urls_found += 1
+                    logger.debug(f"Publication {num}: found URL - {url[:80]}")
+            except Exception as e:
+                logger.debug(f"Publication {num}: URL search error - {e}")
+
             c.execute(
                 "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email, source_url, source_name) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"], "", "", "")
+                (adv_id, num, authors, p["title"], p["journal"], p["year"], p["pages"], "", url or "", source_name)
             )
         conn.commit()
 
-        logger.info(f"Extracted {len(struct_pubs)} publications (section: {found_section})")
+        logger.info(f"Extracted {len(struct_pubs)} publications (section: {found_section}), {urls_found} URLs found")
         if llm_time:
             logger.debug(f"LLM time: {llm_time:.1f}s")
 

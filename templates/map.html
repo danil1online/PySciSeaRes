@@ -37,7 +37,7 @@
 <script>
 const cityStats = {{ city_stats | tojson }};
 const cities = {{ cities | tojson }};
-const specialtyGroups = {{ specialties | map(attribute='key') | tojson }};
+const specialtyGroups = {{ specialties | map(attribute='key') | list | tojson }};
 
 const specialtyColors = {
     "1": "#1f77b4", // Математика
