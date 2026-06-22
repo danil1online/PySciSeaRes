@@ -110,5 +110,5 @@ def init_db():
             pass
 
     conn.commit()
-    conn.close()
     logger.debug(f"Database initialized: {DB_PATH}")
+    conn.close()

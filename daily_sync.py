@@ -17,7 +17,7 @@ app_logger, sync_logger = setup_logging()
 from config import (
     MAX_PUBLICATIONS, SESSION_SECRET_KEY, SCI_SPEC_FILE,
 )
-from vak_sync.db import init_db
+from vak_sync.db import init_db, get_db
 from vak_sync.vak_api import read_specialties
 from vak_sync.memory import (
     get_memory_mb, check_memory, force_gc,
@@ -382,7 +382,8 @@ def main():
     logger.info(f"Start: memory {mem:.0f} MB / limit {MAX_MEMORY_MB} MB")
     print("=" * 70)
 
-    conn = init_db()
+    init_db()
+    conn = get_db()
 
     today = datetime.now()
     date_from = (today - timedelta(days=30)).strftime("%Y-%m-%d")
