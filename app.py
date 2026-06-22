@@ -447,6 +447,17 @@ def detail(advert_id):
     advert = get_advert_detail(advert_id)
     if not advert:
         abort(404)
+    try:
+        db_conn = get_db()
+        db_c = db_conn.cursor()
+        db_c.execute("SELECT city, organization_name FROM adverts WHERE id = ?", (advert_id,))
+        db_row = db_c.fetchone()
+        if db_row:
+            advert.setdefault("city", db_row[0] or "")
+            advert.setdefault("organization_name", db_row[1] or "")
+        db_conn.close()
+    except Exception as e:
+        logger.debug(f"Detail DB fetch error: {e}")
     search_params = session.get("last_search", {})
     back_qs = ""
     if search_params:

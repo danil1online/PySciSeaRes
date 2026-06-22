@@ -115,7 +115,7 @@ def _search_publication_url(pub, autoref_text):
     return None, None
 
 
-def _verify_publication_urls(conn, advert_id):
+def _verify_publication_urls(conn, advert_db_id):
     """Проверяет URL публикаций: открывает страницу и сравнивает название и авторов."""
     import requests
     from bs4 import BeautifulSoup
@@ -180,7 +180,7 @@ def _verify_publication_urls(conn, advert_id):
     return verified_count
 
 
-def _extract_publications(conn, advert_id, pdf_path, counters):
+def _extract_publications(conn, advert_db_id, pdf_path, counters):
     """Извлекает публикации из автореферата и ищет для них URL."""
     _print_and_log("Extracting publications from PDF...")
     counters["extracted"] += 1
@@ -212,7 +212,7 @@ def _extract_publications(conn, advert_id, pdf_path, counters):
 
             c.execute(
                 "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email, source_url, source_name) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (advert_id, num, authors, p["title"], p["journal"], p["year"], p["pages"], "", url or "", source_name)
+                (advert_db_id, num, authors, p["title"], p["journal"], p["year"], p["pages"], "", url or "", source_name)
             )
         conn.commit()
 
@@ -222,7 +222,7 @@ def _extract_publications(conn, advert_id, pdf_path, counters):
 
         # Verify publication URLs
         if struct_pubs:
-            verified = _verify_publication_urls(conn, advert_id)
+            verified = _verify_publication_urls(conn, advert_db_id)
             _print_and_log(f"Publication URL verification: {verified}/{len(struct_pubs)} verified")
 
         return len(struct_pubs), True
