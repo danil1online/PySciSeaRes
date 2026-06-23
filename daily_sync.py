@@ -59,21 +59,17 @@ def _search_publication_url(pub, autoref_text):
         _search_crossref, _resolve_doi, _titles_match, _find_pdf_url_from_html,
     )
 
+    # Ensure all text fields are strings (not lists/dicts/other types)
+    for field in ('authors', 'title', 'journal', 'pages', 'volume', 'issue'):
+        val = pub.get(field)
+        if isinstance(val, list):
+            pub[field] = ", ".join(str(v) for v in val if v)
+        elif not isinstance(val, str):
+            pub[field] = str(val) if val else ""
+
     pub_title = pub.get('title', '')
     pub_authors = pub.get('authors', '')
     pub_year = pub.get('year')
-
-    if isinstance(pub.get('authors'), list):
-        pub['authors'] = ", ".join(pub['authors'])
-
-    if isinstance(pub.get('title'), list):
-        pub['title'] = ", ".join(pub['title'])
-
-    if isinstance(pub.get('journal'), list):
-        pub['journal'] = ", ".join(pub['journal'])
-
-    if isinstance(pub.get('pages'), list):
-        pub['pages'] = ", ".join(pub['pages'])
 
     # 1. Проверяем DOI в тексте автореферата
     if autoref_text:
@@ -246,10 +242,10 @@ def _extract_publications(conn, advert_db_id, pdf_path, counters):
 
 def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids):
     """Обрабатывает одно объявление о защите."""
-    advert_db_id = advert["id"]
-    if advert_db_id in processed_ids:
+    search_id = advert["id"]
+    if search_id in processed_ids:
         return False
-    processed_ids.add(advert_db_id)
+    processed_ids.add(search_id)
 
     from vak_sync.vak_api import get_advert_detail
 
@@ -257,9 +253,9 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     date_defend = advert.get("date_defend", "")
     counters["processed"] += 1
 
-    _print_and_log(f"[{advert_db_id[:8]}...] {fio} | {date_defend}")
+    _print_and_log(f"[{search_id[:8]}...] {fio} | {date_defend}")
 
-    detail = get_advert_detail(advert_db_id)
+    detail = get_advert_detail(search_id)
     if not detail:
         _print_and_log("Error getting detail", "ERROR")
         counters["errors"] += 1
@@ -268,7 +264,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
     c = conn.cursor()
 
     new_defense = is_new_defense(fio, date_defend)
-    advert_db_id = detail.get("id")
+    advert_db_id = detail.get("id") or search_id
 
     try:
         c.execute("""INSERT OR REPLACE INTO adverts (

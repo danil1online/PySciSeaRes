@@ -452,6 +452,7 @@ def detail(advert_id):
         db_c = db_conn.cursor()
         db_c.execute("SELECT city, organization_name FROM adverts WHERE id = ?", (advert_id,))
         db_row = db_c.fetchone()
+        logger.debug(f"Detail DB fetch: id={advert_id}, db_row={db_row}, api_city={advert.get('city')}, api_org={advert.get('organization_name')}")
         if db_row:
             if db_row[0]:
                 advert["city"] = db_row[0]
