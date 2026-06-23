@@ -10,6 +10,7 @@ from functools import wraps
 from flask import (
     Flask, request, session, redirect, url_for,
     render_template, send_file, abort, jsonify, flash,
+    send_from_directory,
 )
 from urllib.parse import urlencode
 
@@ -298,6 +299,15 @@ def map_page():
         for cs in city_stats[:5]:
             logger.info(f"  City: {cs.get('city')}, count={cs.get('count')}, specialties={cs.get('specialties')}")
     return render_template("map.html", specialties=specialties, city_stats=city_stats, cities=cities)
+
+
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+@app.route("/data/<path:filename>")
+@login_required
+def serve_data(filename):
+    """Serve preprocessed map data files."""
+    return send_from_directory(DATA_DIR, filename)
 
 
 @app.route("/api/search_email", methods=["POST"])
