@@ -5,7 +5,7 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "Local Llama.cpp",
       "options": {
-        "baseURL": "http://195.133.13.56:8181/v1"
+        "baseURL": "http://192.168.0.104:8181/v1"
       },
       "models": {
         "qwen-local": {

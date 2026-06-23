@@ -11,7 +11,7 @@
             </select>
         </div>
     </div>
-    <div id="map-container" style="width:100%;height:600px;margin-top:16px;background:#0a1628;border-radius:8px;overflow:hidden;position:relative;"></div>
+    <div id="map-container" style="width:100%;height:600px;margin-top:16px;border-radius:8px;overflow:hidden;"></div>
     <div class="map-stats" id="map-stats">
         <p>Всего городов: <span id="total-cities">0</span></p>
         <p>Всего защит: <span id="total-defenses">0</span></p>
@@ -20,6 +20,8 @@
 {% endblock %}
 
 {% block scripts %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const cityStats = {{ city_stats | tojson }};
 const specialties = {{ specialties | tojson }};
@@ -52,76 +54,38 @@ const cityCoords = {
     "сочи":[43.5855,39.7231],"донецк":[48.0066,37.8017],
 };
 
-// Russia outline: [lat, lng] - simplified border
-const RUSSIA_OUTLINE = [
-    [69.9,28.4],[69.5,30.0],[69.0,32.0],[68.5,34.0],[68.0,36.0],
-    [67.5,38.0],[67.0,40.0],[66.5,42.0],[66.0,44.0],[65.5,46.0],
-    [65.0,48.0],[64.5,50.0],[64.0,52.0],[63.5,54.0],[63.0,56.0],
-    [63.5,58.0],[64.5,60.0],[65.5,62.0],[66.5,64.0],[67.5,66.0],
-    [68.5,68.0],[69.5,70.0],[70.5,72.0],[71.5,74.0],[72.5,76.0],
-    [73.5,78.0],[74.5,80.0],[75.5,82.0],[76.5,84.0],[77.5,86.0],
-    [78.5,88.0],[79.5,90.0],[80.0,95.0],[80.0,100.0],[79.5,105.0],
-    [79.0,110.0],[78.0,120.0],[77.0,130.0],[76.0,140.0],[75.0,150.0],
-    [74.0,160.0],[73.0,170.0],[72.0,180.0],[71.0,185.0],[70.0,190.0],
-    [69.0,188.0],[68.0,185.0],[67.0,182.0],[66.0,180.0],[65.0,178.0],
-    [64.0,176.0],[63.0,174.0],[62.0,172.0],[61.0,170.0],[60.0,168.0],
-    [59.0,166.0],[58.0,164.0],[57.0,162.0],[56.0,160.0],[55.0,158.0],
-    [54.0,156.0],[53.0,155.0],[52.0,155.0],[51.0,156.0],[50.0,158.0],
-    [49.0,160.0],[48.0,162.0],[47.0,164.0],[46.0,166.0],[45.0,168.0],
-    [44.0,170.0],[43.0,172.0],[42.0,176.0],[42.0,178.0],
-    [42.0,170.0],[42.0,160.0],[43.0,150.0],[44.0,140.0],[45.0,130.0],
-    [46.0,120.0],[47.0,110.0],[48.0,100.0],[49.0,90.0],[50.0,80.0],
-    [50.0,70.0],[50.0,60.0],[50.0,50.0],[50.0,45.0],
-    [50.0,42.0],[50.0,38.0],[50.0,35.0],[50.0,32.0],[50.0,30.0],
-    [52.0,30.0],[53.0,29.0],[54.0,28.5],[55.0,28.0],[55.5,27.5],
-    [56.0,27.0],[57.0,26.0],[58.0,25.0],[59.0,24.0],[60.0,23.0],
-    [61.0,22.0],[62.0,21.0],[63.0,20.0],[64.0,19.0],[65.0,18.0],
-    [66.0,17.0],[67.0,16.0],[68.0,15.0],[69.0,14.0],[69.5,13.0],
-    [69.9,12.0],[70.0,15.0],[70.0,18.0],[70.0,22.0],[69.9,28.4],
-];
+let map = null;
+let markersLayer = null;
 
-// Projection: lat/lng -> SVG coordinates
-const MARGIN = {left: 40, right: 40, top: 30, bottom: 30};
-const W = 1000, H = 600;
-const PLOT_W = W - MARGIN.left - MARGIN.right;
-const PLOT_H = H - MARGIN.top - MARGIN.bottom;
-
-const LAT_MIN = 40, LAT_MAX = 82;
-const LNG_MIN = 25, LNG_MAX = 190;
-
-function project(lat, lng) {
-    const x = MARGIN.left + ((lng - LNG_MIN) / (LNG_MAX - LNG_MIN)) * PLOT_W;
-    const y = MARGIN.top + ((LAT_MAX - lat) / (LAT_MAX - LAT_MIN)) * PLOT_H;
-    return [x, y];
+function createIcon(color, radius) {
+    const size = radius * 2;
+    return L.divIcon({
+        className: 'city-marker',
+        html: `<div style="
+            width: ${size}px;
+            height: ${size}px;
+            background: ${color};
+            border-radius: 50%;
+            border: 2px solid #fff;
+            box-shadow: 0 0 10px ${color}88, 0 0 20px ${color}44;
+        "></div>`,
+        iconSize: [size, size],
+        iconAnchor: [radius, radius],
+    });
 }
 
-// Draw SVG map
 function drawMap() {
-    const container = document.getElementById('map-container');
     const filter = document.getElementById('specialty-filter').value;
 
-    // Calculate city stats
+    // Calculate max count for scaling
     let maxCount = 0;
     Object.values(cityStats).forEach(s => { if (s.count > maxCount) maxCount = s.count; });
 
-    // Build SVG
-    let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+    // Remove old markers
+    if (markersLayer) map.removeLayer(markersLayer);
+    markersLayer = L.layerGroup();
 
-    // Background
-    svg += `<rect width="${W}" height="${H}" fill="#0a1628"/>`;
-
-    // Russia outline
-    let outlinePath = '';
-    RUSSIA_OUTLINE.forEach(([lat, lng], i) => {
-        const [x, y] = project(lat, lng);
-        if (i === 0) outlinePath += `M${x.toFixed(1)},${y.toFixed(1)}`;
-        else outlinePath += ` L${x.toFixed(1)},${y.toFixed(1)}`;
-    });
-    outlinePath += ' Z';
-    svg += `<path d="${outlinePath}" fill="rgba(74,144,217,0.08)" stroke="#4a90d9" stroke-width="1.5" stroke-linejoin="round"/>`;
-
-    // City dots
-    let hoveredCity = null;
+    // Add markers
     Object.entries(cityStats).forEach(([name, data]) => {
         if (filter !== 'all' && data.specialty !== filter) return;
 
@@ -130,95 +94,66 @@ function drawMap() {
         if (!coords) return;
 
         const [lat, lng] = coords;
-        const [x, y] = project(lat, lng);
-        const radius = maxCount > 0 ? Math.max(5, Math.sqrt(data.count / maxCount) * 20) : 8;
+        const radius = maxCount > 0 ? Math.max(8, Math.sqrt(data.count / maxCount) * 25) : 12;
         const color = specialtyColors[data.specialty] || '#888';
 
-        // Glow
-        svg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(radius * 1.8).toFixed(1)}" fill="${color}22"/>`;
-        // Dot
-        svg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${radius.toFixed(1)}" fill="${color}" stroke="#fff" stroke-width="1" opacity="0.9"/>`;
+        const marker = L.marker([lat, lng], {
+            icon: createIcon(color, radius),
+            riseOnHover: true,
+        });
+
+        marker.bindPopup(`
+            <div style="text-align:center;font-family:monospace;">
+                <strong>${name}</strong><br>
+                ${data.count} защит<br>
+                <small>спец. ${data.specialty}</small>
+            </div>
+        `);
+
+        markersLayer.addLayer(marker);
     });
 
-    svg += `</svg>`;
-    container.innerHTML = svg;
+    markersLayer.addTo(map);
 }
 
-// Tooltip via floating div
-let tooltip = null;
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize map
+    map = L.map('map-container', {
+        center: [62, 75],
+        zoom: 4,
+        minZoom: 3,
+        maxZoom: 10,
+        zoomControl: true,
+    });
 
-function showTooltip(name, count, specialty, x, y) {
-    if (!tooltip) {
-        tooltip = document.createElement('div');
-        tooltip.style.cssText = 'position:absolute;background:rgba(0,0,0,0.9);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px;font-family:monospace;pointer-events:none;z-index:100;white-space:nowrap;display:none;';
-        document.getElementById('map-container').appendChild(tooltip);
-    }
-    tooltip.textContent = `${name}: ${count} защит (спец. ${specialty})`;
-    tooltip.style.display = 'block';
-    tooltip.style.left = (x + 15) + 'px';
-    tooltip.style.top = (y - 10) + 'px';
-}
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 18,
+    }).addTo(map);
 
-function hideTooltip() {
-    if (tooltip) tooltip.style.display = 'none';
-}
+    // Filter
+    document.getElementById('specialty-filter').addEventListener('change', drawMap);
 
-// Mouse events on SVG
-document.getElementById('map-container').addEventListener('mousemove', (e) => {
-    const svgEl = document.querySelector('#map-container svg');
-    if (!svgEl) return;
+    // Populate filter
+    const allSpecialties = [...new Set(Object.values(cityStats).map(s => s.specialty))].sort();
+    allSpecialties.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        document.getElementById('specialty-filter').appendChild(opt);
+    });
 
-    const rect = svgEl.getBoundingClientRect();
-    const scaleX = W / rect.width;
-    const scaleY = H / rect.height;
-    const mx = (e.clientX - rect.left) * scaleX;
-    const my = (e.clientY - rect.top) * scaleY;
+    // Stats
+    const cities = Object.keys(cityStats).length;
+    const defenses = Object.values(cityStats).reduce((sum, s) => sum + s.count, 0);
+    document.getElementById('total-cities').textContent = cities;
+    document.getElementById('total-defenses').textContent = defenses;
 
-    // Check city dots
-    let maxCount = 0;
-    Object.values(cityStats).forEach(s => { if (s.count > maxCount) maxCount = s.count; });
-
-    const filter = document.getElementById('specialty-filter').value;
-    for (const [name, data] of Object.entries(cityStats)) {
-        if (filter !== 'all' && data.specialty !== filter) continue;
-        const key = name.toLowerCase().trim();
-        const coords = cityCoords[key];
-        if (!coords) continue;
-        const [lat, lng] = coords;
-        const [x, y] = project(lat, lng);
-        const radius = maxCount > 0 ? Math.max(5, Math.sqrt(data.count / maxCount) * 20) : 8;
-        const dist = Math.sqrt((mx - x) ** 2 + (my - y) ** 2);
-        if (dist < radius + 8) {
-            showTooltip(name, data.count, data.specialty, x, y);
-            return;
-        }
-    }
-    hideTooltip();
-});
-
-document.getElementById('map-container').addEventListener('mouseleave', hideTooltip);
-
-// Filter
-document.getElementById('specialty-filter').addEventListener('change', () => {
+    // Initial draw
     drawMap();
 });
-
-// Populate filter
-const allSpecialties = [...new Set(Object.values(cityStats).map(s => s.specialty))].sort();
-allSpecialties.forEach(s => {
-    const opt = document.createElement('option');
-    opt.value = s;
-    opt.textContent = s;
-    document.getElementById('specialty-filter').appendChild(opt);
-});
-
-// Stats
-const cities = Object.keys(cityStats).length;
-const defenses = Object.values(cityStats).reduce((sum, s) => sum + s.count, 0);
-document.getElementById('total-cities').textContent = cities;
-document.getElementById('total-defenses').textContent = defenses;
-
-// Initial draw
-drawMap();
 </script>
+<style>
+.city-marker { background: transparent !important; border: none !important; }
+</style>
 {% endblock %}
