@@ -1,11 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Карта защит{% endblock %}
 {% block content %}
-<div id="map-fullscreen">
+<div id="map-wrapper">
     <div id="map-topbar">
-        <div>
-            <h1>Карта защит по городам</h1>
-        </div>
+        <h1>Карта защит по городам</h1>
         <div class="map-controls">
             <div class="form-group">
                 <label>Специальность:</label>
@@ -17,8 +15,8 @@
     </div>
     <div id="map-container"></div>
     <div id="map-stats">
-        <p>Всего городов: <span id="total-cities">0</span></p>
-        <p>Всего защит: <span id="total-defenses">0</span></p>
+        <span>Всего городов: <span id="total-cities">0</span></span>
+        <span>Всего защит: <span id="total-defenses">0</span></span>
     </div>
 </div>
 {% endblock %}
@@ -30,13 +28,19 @@
 const cityStatsList = {{ city_stats | tojson }};
 const specialtyCatalog = {{ specialties | tojson }};
 
-const specialtyColors = {
-    "1":"#1f77b4","1.1":"#1f77b4","1.2":"#1f77b4","1.3":"#1f77b4","1.4":"#1f77b4","1.5":"#1f77b4","1.6":"#1f77b4",
-    "2":"#ff7f0e","2.1":"#ff7f0e","2.2":"#ff7f0e","2.3":"#ff7f0e","2.4":"#ff7f0e","2.5":"#ff7f0e","2.6":"#ff7f0e","2.7":"#ff7f0e","2.8":"#ff7f0e","2.9":"#ff7f0e","2.10":"#ff7f0e",
-    "3":"#2ca02c","3.1":"#2ca02c","3.2":"#2ca02c","3.3":"#2ca02c","3.4":"#2ca02c",
-    "4":"#d62728","4.1":"#d62728","4.2":"#d62728","4.3":"#d62728",
-    "5":"#9467bd","5.1":"#9467bd","5.2":"#9467bd","5.3":"#9467bd","5.4":"#9467bd","5.5":"#9467bd","5.6":"#9467bd","5.7":"#9467bd","5.8":"#9467bd","5.9":"#9467bd","5.10":"#9467bd","5.11":"#9467bd","5.12":"#9467bd",
-};
+// Unique color per specialty code using FNV-1a hash
+// 276 specialties -> ~97% unique colors
+function specialtyColor(code) {
+    // FNV-1a hash
+    let h = 0x811c9dc5 >>> 0;
+    for (let i = 0; i < code.length; i++) {
+        h ^= code.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    // Spread across 0-360 hue range using floating point division
+    const hue = (h / 4294967296) * 360;
+    return `hsl(${hue}, 65%, 55%)`;
+}
 
 const cityCoords = {
     "москва":[55.7558,37.6173],"москве":[55.7558,37.6173],
@@ -114,8 +118,9 @@ function drawMap() {
     Object.entries(cityStats).forEach(([name, data]) => {
         if (filter !== 'all' && data.specialty !== filter) return;
 
-        const radius = Math.max(8, Math.sqrt(data.count) * 10);
-        const color = specialtyColors[data.specialty] || '#888';
+        // Размер точки зависит от количества защит (sqrt масштаб)
+        const radius = Math.max(10, Math.sqrt(data.count) * 14);
+        const color = specialtyColor(data.specialty);
 
         const marker = L.marker([data.lat, data.lng], {
             icon: createIcon(color, radius),
@@ -165,57 +170,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
     drawMap();
 
-    // Recalculate height when page is fully loaded
-    setTimeout(() => {
-        map.invalidateSize();
-        const onResize = () => { map.invalidateSize(); };
-        window.addEventListener('resize', onResize);
-    }, 300);
+    // Fix Leaflet size after DOM layout
+    setTimeout(() => { map.invalidateSize(); }, 100);
 });
 </script>
 <style>
-/* Override base layout for map page */
-body { padding: 0; }
-.navbar { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; }
-#map-fullscreen {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    margin-top: 56px;
+#map-wrapper {
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 0 16px;
 }
 #map-topbar {
-    padding: 12px 24px;
-    background: white;
-    border-bottom: 1px solid #e2e8f0;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    flex-shrink: 0;
+    padding: 16px 0;
 }
 #map-topbar h1 {
     margin: 0;
-    font-size: 20px;
-    color: #1e293b;
-    white-space: nowrap;
+    font-size: 24px;
+    color: var(--text);
 }
 #map-container {
-    flex: 1;
     width: 100%;
-    min-height: 0;
+    height: 600px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
 }
 #map-stats {
-    padding: 8px 24px;
-    background: white;
-    border-top: 1px solid #e2e8f0;
-    font-size: 13px;
-    color: #555;
+    padding: 12px 0;
+    font-size: 14px;
+    color: var(--text-secondary);
     display: flex;
     gap: 24px;
-    flex-shrink: 0;
 }
 .city-marker { background: transparent !important; border: none !important; }
-
-/* Override container padding */
-main.container { padding: 0; }
 </style>
 {% endblock %}
