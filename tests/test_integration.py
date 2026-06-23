@@ -31,6 +31,7 @@ class TestIntegrationSearch:
             autoref_pdf_url TEXT, downloaded INTEGER DEFAULT 0,
             email_search_attempts INTEGER DEFAULT 0,
             pub_extract_attempts INTEGER DEFAULT 0,
+            city TEXT, organization_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
         c.execute("""CREATE TABLE publications (
@@ -119,12 +120,12 @@ class TestIntegrationSearch:
 
 
 class TestIntegrationDetail:
-    """Интеграционные тесты детального просмотра."""
+    """Интеграционные тесты детальной информации."""
 
     @pytest.fixture
     def db_with_detail(self, tmp_path):
-        """БД с полными данными."""
-        db_path = tmp_path / "vak.db"
+        """Создаёт БД с полными тестовыми данными."""
+        db_path = tmp_path / "vak_detail.db"
         conn = sqlite3.connect(str(db_path))
         c = conn.cursor()
 
@@ -137,6 +138,7 @@ class TestIntegrationDetail:
             autoref_pdf_url TEXT, downloaded INTEGER DEFAULT 0,
             email_search_attempts INTEGER DEFAULT 0,
             pub_extract_attempts INTEGER DEFAULT 0,
+            city TEXT, organization_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
         c.execute("""CREATE TABLE publications (
@@ -155,8 +157,8 @@ class TestIntegrationDetail:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
 
-        c.execute("""INSERT INTO adverts (id, fio, date_defend, dissertation_name, specialty_cipher, specialty_text, supervisor_name, council_cipher, defend_org, autoref_url)
-                     VALUES ('adv-100', 'Тестов И.Т.', '2026-06-10', 'Полная диссертация', '2.2.11.', 'Информатика', 'Руководов Р.Р.', 'Д 123.456', 'МГУ', 'https://example.com/avtoref.pdf')""")
+        c.execute("""INSERT INTO adverts (id, fio, date_defend, dissertation_name, specialty_cipher, specialty_text, supervisor_name, council_cipher, defend_org, autoref_url, city, organization_name)
+                     VALUES ('adv-100', 'Тестов И.Т.', '2026-06-10', 'Полная диссертация', '2.2.11.', 'Информатика', 'Руководов Р.Р.', 'Д 123.456', 'МГУ', 'https://example.com/avtoref.pdf', 'Москва', 'МГУ')""")
         c.execute("""INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages)
                      VALUES ('adv-100', 1, 'Тестов И.Т.', 'Первая статья', 'Журнал X', 2025, '1-10')""")
         c.execute("""INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages)
@@ -201,7 +203,8 @@ class TestIntegrationDBInit:
         vak_db.DB_PATH = str(test_db)
 
         try:
-            conn = init_db()
+            init_db()
+            conn = sqlite3.connect(str(test_db))
 
             # Проверяем, что WAL режим включён
             c = conn.cursor()

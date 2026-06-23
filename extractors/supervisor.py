@@ -1,14 +1,13 @@
+"""Извлечение данных о научном руководителе через LLM."""
 import json
 import re
 import requests
-import pdfplumber
 
-from config import (
-    LLM_API_URL, LLM_MODEL, HEADERS,
-    LLM_TIMEOUT, LLM_MAX_TOKENS, LLM_TEMPERATURE,
-)
+from config import LLM_API_URL, LLM_MODEL, HEADERS, LLM_TIMEOUT, LLM_MAX_TOKENS, LLM_TEMPERATURE
+from extractors.cache import get_cached, cache_result
+from logging_config import get_logger
 
-from .cache import get_cached, cache_result
+logger = get_logger("supervisor")
 
 SUPERVISOR_SYSTEM_PROMPT = (
     "Ты — помощник по извлечению данных о научном руководителе из автореферата диссертации. "
@@ -27,6 +26,7 @@ def extract_supervisor_from_pdf_text(text):
 def extract_supervisor_from_pdf(pdf_path):
     """Извлекает руководителя из PDF-файла (legacy, для обратной совместимости)."""
     try:
+        import pdfplumber
         with pdfplumber.open(pdf_path) as pdf:
             text = ""
             pages_to_read = min(3, len(pdf.pages))
@@ -35,7 +35,7 @@ def extract_supervisor_from_pdf(pdf_path):
                 text += "\n" + t
         return extract_supervisor_from_pdf_text(text)
     except Exception as e:
-        print(f"  Ошибка чтения PDF для руководителя {pdf_path}: {e}")
+        logger.error(f"Error reading PDF for supervisor {pdf_path}: {e}")
         return {"supervisor_name": None, "supervisor_work": None}
 
 
@@ -55,7 +55,6 @@ def _send_supervisor_request(text):
     )
 
     try:
-        # Проверяем кэш (ключ — текст, так как промпт фиксированный)
         cached_content, cached_time, from_cache = get_cached("", text[:3000])
         if from_cache:
             content = cached_content
@@ -76,11 +75,8 @@ def _send_supervisor_request(text):
             )
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"].strip()
-
-            # Сохраняем в кэш
             cache_result("", text[:3000], content, 0)
 
-        # Try to extract JSON from response
         json_match = re.search(r'\{[^}]+\}', content, re.DOTALL)
         if json_match:
             data = json.loads(json_match.group())
@@ -91,5 +87,5 @@ def _send_supervisor_request(text):
         return {"supervisor_name": None, "supervisor_work": None}
 
     except Exception as e:
-        print(f"  Ошибка LLM запроса для руководителя: {e}")
+        logger.error(f"LLM request error for supervisor: {e}")
         return {"supervisor_name": None, "supervisor_work": None}

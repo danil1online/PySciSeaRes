@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}Карта защит{% endblock %}
+{% block content %}
+<div id="map-wrapper">
+    <div id="map-topbar">
+        <h1>Карта защит по городам</h1>
+        <div class="map-controls">
+            <div class="form-group">
+                <label>Специальность:</label>
+                <select id="specialty-filter">
+                    <option value="all">Все специальности</option>
+                </select>
+            </div>
+        </div>
+    </div>
+    <div id="map-container"></div>
+    <div id="map-stats">
+        <span>Всего городов: <span id="total-cities">0</span></span>
+        <span>Всего защит: <span id="total-defenses">0</span></span>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const cityStatsList = {{ city_stats | tojson }};
+const specialtyCatalog = {{ specialties | tojson }};
+
+// Unique color per specialty code using FNV-1a hash
+// 276 specialties -> ~97% unique colors
+function specialtyColor(code) {
+    // FNV-1a hash
+    let h = 0x811c9dc5 >>> 0;
+    for (let i = 0; i < code.length; i++) {
+        h ^= code.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    // Spread across 0-360 hue range using floating point division
+    const hue = (h / 4294967296) * 360;
+    return `hsl(${hue}, 65%, 55%)`;
+}
+
+const cityCoords = {
+    "москва":[55.7558,37.6173],"москве":[55.7558,37.6173],
+    "санкт-петербург":[59.9343,30.3351],"петербург":[59.9343,30.3351],"спб":[59.9343,30.3351],
+    "новосибирск":[55.0084,82.9357],"екатеринбург":[56.8389,60.6057],"казань":[55.7961,49.1064],
+    "нижний новгород":[56.2965,43.9361],"челябинск":[55.1644,61.4368],"самара":[53.1959,50.1002],
+    "омск":[54.9885,73.3242],"красноярск":[56.0153,92.8932],"пермь":[58.0105,56.2294],
+    "воронеж":[51.6683,39.1840],"ростов-на-дону":[47.2357,39.7015],"уфа":[54.7388,55.9721],
+    "краснодар":[45.0355,38.9753],"вологда":[59.2239,39.8839],"тула":[54.1961,37.6182],
+    "калуга":[54.5293,36.2754],"ярославль":[57.6261,39.8845],"тверь":[56.8587,35.9176],
+    "иркутск":[52.2970,104.2964],"томск":[56.5012,84.9924],"белгород":[50.5997,36.5881],
+    "курск":[51.7372,36.1874],"липецк":[52.6031,39.5708],"тамбов":[52.7219,41.4436],
+    "владимир":[56.1290,40.4071],"рязань":[54.6269,39.6916],"пенза":[53.2001,45.0049],
+    "саратов":[51.5462,46.0154],"волгоград":[48.7080,44.5133],"брянск":[53.2521,34.3717],
+    "смоленск":[54.7826,32.0453],"псков":[57.8194,28.3318],"мурманск":[68.9585,33.0827],
+    "архангельск":[64.5401,40.5433],"орел":[52.9651,36.0785],"киров":[58.6035,49.6680],
+    "набережные челны":[55.7251,52.4840],"ижевск":[56.8527,53.2114],"череповец":[59.1369,37.9069],
+    "сочи":[43.5855,39.7231],"донецк":[48.0066,37.8017],
+};
+
+function normalizeCity(name) {
+    return (name || "").toLowerCase().trim();
+}
+
+function findCoords(cityName) {
+    const key = normalizeCity(cityName);
+    if (cityCoords[key]) return cityCoords[key];
+    for (const [k, v] of Object.entries(cityCoords)) {
+        if (key.includes(k) || k.includes(key)) return v;
+    }
+    return null;
+}
+
+const cityStats = {};
+const allSpecialties = new Set();
+
+cityStatsList.forEach(item => {
+    const key = normalizeCity(item.city);
+    const coords = findCoords(item.city);
+    if (!coords) return;
+
+    const specEntries = Object.entries(item.specialties || {});
+    specEntries.forEach(([spec]) => allSpecialties.add(spec));
+
+    const primarySpec = specEntries.length > 0 ? specEntries.sort((a,b) => b[1] - a[1])[0][0] : "0";
+
+    cityStats[key] = {
+        lat: coords[0],
+        lng: coords[1],
+        count: item.count,
+        specialty: primarySpec,
+        specialties: item.specialties || {}
+    };
+});
+
+let map = null;
+let markersLayer = null;
+
+function createIcon(color, radius) {
+    const size = radius * 2;
+    return L.divIcon({
+        className: 'city-marker',
+        html: `<div style="width:${size}px;height:${size}px;background:${color};border-radius:50%;border:2px solid #fff;box-shadow:0 0 10px ${color}88,0 0 20px ${color}44;"></div>`,
+        iconSize: [size, size],
+        iconAnchor: [radius, radius],
+    });
+}
+
+function drawMap() {
+    const filter = document.getElementById('specialty-filter').value;
+
+    if (markersLayer) map.removeLayer(markersLayer);
+    markersLayer = L.layerGroup();
+
+    Object.entries(cityStats).forEach(([name, data]) => {
+        if (filter !== 'all' && data.specialty !== filter) return;
+
+        // Размер точки зависит от количества защит (sqrt масштаб)
+        const radius = Math.max(10, Math.sqrt(data.count) * 14);
+        const color = specialtyColor(data.specialty);
+
+        const marker = L.marker([data.lat, data.lng], {
+            icon: createIcon(color, radius),
+            riseOnHover: true,
+        });
+
+        const specList = Object.entries(data.specialties || {})
+            .map(([s, c]) => `${s}: ${c}`)
+            .join('<br>');
+
+        marker.bindPopup(`<div style="text-align:center;font-family:monospace;font-size:13px;">
+            <strong>${name}</strong><br>${data.count} защит<br><small>${specList}</small></div>`);
+
+        markersLayer.addLayer(marker);
+    });
+
+    markersLayer.addTo(map);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    map = L.map('map-container', {
+        center: [62, 85],
+        zoom: 4,
+        minZoom: 3,
+        maxZoom: 10,
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap',
+        maxZoom: 18,
+    }).addTo(map);
+
+    const filterEl = document.getElementById('specialty-filter');
+    filterEl.addEventListener('change', drawMap);
+
+    allSpecialties.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        filterEl.appendChild(opt);
+    });
+
+    const cities = Object.keys(cityStats).length;
+    const defenses = Object.values(cityStats).reduce((sum, s) => sum + s.count, 0);
+    document.getElementById('total-cities').textContent = cities;
+    document.getElementById('total-defenses').textContent = defenses;
+
+    drawMap();
+
+    // Fix Leaflet size after DOM layout
+    setTimeout(() => { map.invalidateSize(); }, 100);
+});
+</script>
+<style>
+#map-wrapper {
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 0 16px;
+}
+#map-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 0;
+}
+#map-topbar h1 {
+    margin: 0;
+    font-size: 24px;
+    color: var(--text);
+}
+#map-container {
+    width: 1200px;
+    height: 600px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+#map-stats {
+    padding: 12px 0;
+    font-size: 14px;
+    color: var(--text-secondary);
+    display: flex;
+    gap: 24px;
+}
+.city-marker { background: transparent !important; border: none !important; }
+</style>
+{% endblock %}

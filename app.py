@@ -1,4 +1,6 @@
+"""Flask-приложение: веб-интерфейс, API, авторизация, QA, /docs."""
 import os
+import re
 import sys
 import json
 import openpyxl
@@ -12,14 +14,23 @@ from flask import (
 from urllib.parse import urlencode
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Setup logging first
+from logging_config import setup_logging
+app_logger, sync_logger = setup_logging()
+
 from auth import init_users, login as auth_login, create_user, delete_user, get_all_users, create_user_with_cluster
-from search import search_adverts, get_advert_detail, get_all_specialties, get_db, load_cluster_specialties, get_cluster_info
+from search import search_adverts, get_advert_detail, get_all_specialties, get_db, load_cluster_specialties, get_cluster_info, get_unique_cities, get_city_stats
 from daily_sync import init_db
 from qa import process_question
-from config import SESSION_SECRET_KEY, AUTOREFS_DIR
+from extractors.email_search import find_emails_for_publications, _build_ddg_query
+from vak_sync.pdf import _read_pdf_full
+from config import SESSION_SECRET_KEY, AUTOREFS_DIR, MAX_SPECIALTIES, RESULTS_PER_PAGE
 
 app = Flask(__name__)
 app.secret_key = SESSION_SECRET_KEY
+
+logger = app_logger
 
 
 def login_required(f):
@@ -67,6 +78,12 @@ API_DOCS = {
         "POST /admin/create": {"params": "username, password, is_admin", "desc": "Создание пользователя"},
         "POST /admin/delete/<username>": {"desc": "Удаление пользователя"},
     },
+    "map": {
+        "GET /map": {"desc": "Карта защит по городам"},
+    },
+    "email_search": {
+        "POST /api/search_email": {"params": "advert_id", "desc": "Поиск email для публикаций объявления (не сохраняется в БД)"},
+    },
 }
 
 @app.route("/docs")
@@ -86,7 +103,7 @@ def docs():
         '.method { color: #53ff5a; font-weight: bold; }',
         '.params { color: #ffaa00; }',
         '</style></head><body>',
-        '<h1>📚 VAK Adverts API Documentation</h1>',
+        '<h1>VAK Adverts API Documentation</h1>',
         '<p>Flask application for managing VAK dissertation advertisements.</p>',
         '<p>Base URL: <code>/</code></p>',
     ]
@@ -110,10 +127,10 @@ def docs():
         html_parts.append('</table>')
 
     html_parts.append(
-        '<h2>🔐 Authentication</h2>'
+        '<h2>Authentication</h2>'
         '<p>All API endpoints except <code>/login</code> require authentication via session.</p>'
         '<p>Admin endpoints (<code>/admin/*</code>) require <code>is_admin=1</code>.</p>'
-        '<h2>📊 Search API Response Format</h2>'
+        '<h2>Search API Response Format</h2>'
         '<pre>{'
         '  "adverts": [...],  // Array of adverts'
         '  "total": 100,       // Total count'
@@ -121,7 +138,7 @@ def docs():
         '  "per_page": 1000,   // Items per page'
         '  "total_pages": 1    // Total pages'
         '}</pre>'
-        '<h2>⚙️ Configuration</h2>'
+        '<h2>Configuration</h2>'
         '<pre>PORT=5002'
         'VAK_SECRET_KEY=your-secret-key</pre>'
         '<p>Run: <code>python app.py</code></p>'
@@ -152,6 +169,7 @@ def login():
         user = auth_login(username, password)
         if user:
             session["user"] = user
+            logger.info(f"User logged in: {username}")
             return redirect(url_for("search_page"))
         flash("Неверный логин или пароль", "error")
     return render_template("login.html")
@@ -174,7 +192,6 @@ def register():
         errors = []
 
         # Validate username
-        import re
         if not username:
             errors.append("Логин не может быть пустым")
         elif not re.match(r'^[a-zA-Z0-9_]+$', username):
@@ -235,10 +252,10 @@ def logout():
 def search_page():
     specialties = get_all_specialties()
     user = session.get("user", {})
-    from config import MAX_SPECIALTIES
     clusters = load_cluster_specialties()
     cluster_names = {cid: info["dept_name"] for cid, info in clusters.items()}
-    return render_template("search.html", specialties=specialties, adverts=[], page=1, total=0, total_pages=0, MAX_SPECS=MAX_SPECIALTIES, user=user, cluster_names=cluster_names)
+    cities = get_unique_cities()
+    return render_template("search.html", specialties=specialties, adverts=[], page=1, total=0, total_pages=0, MAX_SPECS=MAX_SPECIALTIES, user=user, cluster_names=cluster_names, cities=cities)
 
 
 @app.route("/api/search")
@@ -248,25 +265,105 @@ def api_search():
     date_from = request.args.get("date_from", "").strip()
     date_to = request.args.get("date_to", "").strip()
     query = request.args.get("query", "").strip()
+    city = request.args.get("city", "").strip()
     page = int(request.args.get("page", 1))
 
-    # Pass cluster_id to search_adverts for DB-level filtering
     user = session.get("user", {})
     cluster_id = None
     if not user.get("is_admin"):
-        cluster_id = user.get("cluster_id")
+         cluster_id = user.get("cluster_id")
 
-    from config import RESULTS_PER_PAGE
     result = search_adverts(
-        specialties=specialties or None,
-        date_from=date_from if date_from else None,
-        date_to=date_to if date_to else None,
-        query=query if query else None,
-        page=page,
-        per_page=RESULTS_PER_PAGE,
-        cluster_id=cluster_id,
+         specialties=specialties or None,
+         date_from=date_from if date_from else None,
+         date_to=date_to if date_to else None,
+         query=query if query else None,
+         city=city if city else None,
+         page=page,
+         per_page=RESULTS_PER_PAGE,
+         cluster_id=cluster_id,
     )
+    logger.debug(f"Search API: {len(result['adverts'])} results for user {session.get('user', {}).get('username', '?')}")
     return jsonify(result)
+
+
+@app.route("/map")
+@login_required
+def map_page():
+    specialties = get_all_specialties()
+    city_stats = get_city_stats()
+    cities = get_unique_cities()
+    logger.info(f"Map page: city_stats={len(city_stats)} cities, cities list={len(cities)} unique")
+    if city_stats:
+        for cs in city_stats[:5]:
+            logger.info(f"  City: {cs.get('city')}, count={cs.get('count')}, specialties={cs.get('specialties')}")
+    return render_template("map.html", specialties=specialties, city_stats=city_stats, cities=cities)
+
+
+@app.route("/api/search_email", methods=["POST"])
+@login_required
+def api_search_email():
+    data = request.get_json(silent=True) or {}
+    advert_id = data.get("advert_id", "")
+
+    if not advert_id:
+         return jsonify({"error": "advert_id не указан"}), 400
+
+    advert = get_advert_detail(advert_id)
+    if not advert:
+         return jsonify({"error": "Объявление не найдено"}), 404
+
+    # Get FIO, city, and organization for better search
+    fio = advert.get("fio", "")
+    city = advert.get("city", "")
+    org = advert.get("organization_name", "")
+
+    # Read PDF text
+    pdf_path = advert.get("autoref_path", "")
+    if not pdf_path or not os.path.exists(pdf_path):
+         return jsonify({"error": "PDF автореферата не найден"}), 404
+
+    pdf_full_text = _read_pdf_full(pdf_path)
+    if not pdf_full_text:
+         return jsonify({"error": "Не удалось прочитать PDF"}), 400
+
+    # Get publications
+    pubs = advert.get("publications", [])
+    if not pubs:
+         return jsonify({"error": "Публикации не найдены"}), 400
+
+    # Build publication data with city and org context
+    struct_pubs = []
+    for pub in pubs:
+         pub_data = {
+             "title": pub.get("title", ""),
+             "authors": pub.get("authors", ""),
+             "journal": pub.get("journal", ""),
+             "year": pub.get("year", ""),
+             "pages": pub.get("pages", ""),
+         }
+         # Add city and org to authors for better search
+         if city:
+             pub_data["authors"] = f"{pub_data['authors']} {city}"
+         if org:
+             pub_data["authors"] = f"{pub_data['authors']} {org}"
+         struct_pubs.append(pub_data)
+
+    # Search emails
+    email_results = find_emails_for_publications(struct_pubs, pdf_full_text)
+
+    # Return results without saving to DB
+    results = []
+    for i, (pub, emails, source) in enumerate(email_results):
+         results.append({
+             "pub_number": i + 1,
+             "title": pub.get("title", "")[:100],
+             "emails": emails,
+             "source_url": source.get("url", "") if source else "",
+             "source_name": source.get("source_name", "") if source else "",
+         })
+
+    return jsonify({"results": results})
 
 
 @app.route("/export")
@@ -276,22 +373,22 @@ def export_excel():
     date_from = request.args.get("date_from", "").strip()
     date_to = request.args.get("date_to", "").strip()
     query = request.args.get("query", "").strip()
+    city = request.args.get("city", "").strip()
 
-    # Cluster filtering for non-admin users
     user = session.get("user", {})
     cluster_id = None
     if not user.get("is_admin"):
-        cluster_id = user.get("cluster_id")
+         cluster_id = user.get("cluster_id")
 
-    # Get all results (no pagination for export)
     result = search_adverts(
-        specialties=specialties or None,
-        date_from=date_from if date_from else None,
-        date_to=date_to if date_to else None,
-        query=query if query else None,
-        page=1,
-        per_page=1000,
-        cluster_id=cluster_id,
+         specialties=specialties or None,
+         date_from=date_from if date_from else None,
+         date_to=date_to if date_to else None,
+         query=query if query else None,
+         city=city if city else None,
+         page=1,
+         per_page=1000,
+         cluster_id=cluster_id,
     )
 
     wb = openpyxl.Workbook()
@@ -322,6 +419,7 @@ def export_excel():
     filepath = os.path.join("/tmp", filename)
     wb.save(filepath)
 
+    logger.info(f"Exported {len(result['adverts'])} adverts to {filename}")
     return send_file(filepath, as_attachment=True, download_name=filename)
 
 
@@ -353,6 +451,27 @@ def detail(advert_id):
     advert = get_advert_detail(advert_id)
     if not advert:
         abort(404)
+    try:
+        db_conn = get_db()
+        db_c = db_conn.cursor()
+        db_c.execute("SELECT city, organization_name FROM adverts WHERE id = ?", (advert_id,))
+        db_row = db_c.fetchone()
+        logger.debug(f"Detail DB fetch: id={advert_id}, db_row={db_row}, api_city={advert.get('city')}, api_org={advert.get('organization_name')}")
+        if db_row:
+            if db_row[0]:
+                advert["city"] = db_row[0]
+            if db_row[1]:
+                advert["organization_name"] = db_row[1]
+        db_conn.close()
+    except Exception as e:
+        logger.debug(f"Detail DB fetch error: {e}")
+    if not advert.get("city") and advert.get("city") != "":
+        from vak_sync.vak_api import get_advert_detail as _vak_detail
+        _detail = _vak_detail(advert_id)
+        if _detail and _detail.get("city"):
+            advert.setdefault("city", _detail["city"])
+        if _detail and _detail.get("organization_name"):
+            advert.setdefault("organization_name", _detail["organization_name"])
     search_params = session.get("last_search", {})
     back_qs = ""
     if search_params:
@@ -375,7 +494,7 @@ def detail(advert_id):
                 else:
                     qs_parts.append((k, v))
             back_qs = urlencode(qs_parts)
-    return render_template("detail.html", advert=advert, back_qs=back_qs)
+    return render_template("detail.html", advert=advert, back_qs=back_qs, cities=get_unique_cities())
 
 
 @app.route("/detail/<advert_id>/save", methods=["POST"])
@@ -386,7 +505,6 @@ def save_detail(advert_id):
     conn = get_db()
     c = conn.cursor()
 
-    # Update advert fields
     def safe_str(v):
         if v is None:
             return ""
@@ -396,7 +514,9 @@ def save_detail(advert_id):
 
     c.execute("""
         UPDATE adverts
-        SET supervisor_name = COALESCE(?, ''),
+        SET city = COALESCE(?, ''),
+            organization_name = COALESCE(?, ''),
+            supervisor_name = COALESCE(?, ''),
             supervisor_work = COALESCE(?, ''),
             date_defend = COALESCE(?, ''),
             dissertation_name = COALESCE(?, ''),
@@ -406,6 +526,8 @@ def save_detail(advert_id):
             defend_org = COALESCE(?, '')
         WHERE id = ?
     """, (
+        safe_str(data.get("city")),
+        safe_str(data.get("organization_name")),
         safe_str(data.get("supervisor_name")),
         safe_str(data.get("supervisor_work")),
         safe_str(data.get("date_defend")),
@@ -417,10 +539,7 @@ def save_detail(advert_id):
         advert_id,
     ))
 
-    # Handle publications
     pubs = data.get("publications", [])
-    import logging
-    logging.warning(f"save_detail: advert_id={advert_id}, pubs={len(pubs)}, pubs_data={pubs}")
     inserted = 0
     updated = 0
     submitted_ids = set()
@@ -442,10 +561,7 @@ def save_detail(advert_id):
             except (ValueError, TypeError):
                 year_val = None
 
-        logging.warning(f"save_detail: processing pub id={pub_id!r} title={title!r} pub_number={pub_number}")
-
         if pub_id:
-            # Update existing
             c.execute("""
                 UPDATE publications
                 SET pub_number = ?, authors = COALESCE(?, ''), title = COALESCE(?, ''),
@@ -455,25 +571,16 @@ def save_detail(advert_id):
             """, (pub_number, authors, title, journal, year_val, pages, email, source_url, source_name, pub_id))
             updated += c.rowcount
         elif title:
-            # Insert new
-            logging.warning(f"save_detail: INSERTING new pub: advert_id={advert_id}, number={pub_number}, title={title!r}, year={year_val}")
             c.execute(
                 "INSERT INTO publications (advert_id, pub_number, authors, title, journal, year, pages, email, source_url, source_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (advert_id, pub_number, authors, title, journal, year_val, pages, email, source_url, source_name)
             )
             inserted += c.rowcount
-            # Remember newly inserted id so it won't be deleted
             submitted_ids.add(c.lastrowid)
-        else:
-            logging.warning(f"save_detail: SKIPPING pub with empty title")
 
-    logging.warning(f"save_detail: submitted_ids={submitted_ids}")
-
-    # Delete publications not in the list (removed) - only existing ones
     c.execute("SELECT id FROM publications WHERE advert_id = ?", (advert_id,))
     current_ids = set(r[0] for r in c.fetchall())
     to_delete = current_ids - submitted_ids
-    logging.warning(f"save_detail: current_ids={current_ids}, to_delete={to_delete}")
     if to_delete:
         placeholders = ",".join(["?"] * len(to_delete))
         c.execute(f"DELETE FROM publications WHERE advert_id = ? AND id IN ({placeholders})", (advert_id, *sorted(to_delete)))
@@ -481,10 +588,8 @@ def save_detail(advert_id):
     conn.commit()
     conn.close()
 
+    logger.info(f"Saved detail: advert_id={advert_id}, inserted={inserted}, updated={updated}, deleted={len(to_delete)}")
     return jsonify({"ok": True})
-
-
-
 
 
 # ======================== QA / LLM CHAT ========================
@@ -557,13 +662,11 @@ def admin_delete_user(username):
 
 # ======================== INIT ========================
 
-@app.before_request
-def ensure_db():
+# Initialize DB once at startup, not on every request
+with app.app_context():
     os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance"), exist_ok=True)
     init_db()
 
 
 if __name__ == "__main__":
-    os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance"), exist_ok=True)
-    init_db()
     app.run(host="0.0.0.0", port=5002, debug=True)

@@ -47,3 +47,7 @@ debug_*.json
 
 # Environment variables
 .env
+
+# Map data (preprocessed)
+data/russia_regions_transformed.json
+data/russia_cities_transformed.json

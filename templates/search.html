@@ -27,6 +27,10 @@
                     <label for="date_to">Дата защиты до</label>
                     <input type="date" id="date_to" name="date_to">
                 </div>
+                <div class="form-group">
+                    <label for="city">Город или организация</label>
+                    <input type="text" id="city" name="city" placeholder="Например: Москва, МГУ...">
+                </div>
             </div>
 
             <div class="form-group">
@@ -89,6 +93,10 @@
         </div>
     </div>
 </div>
+
+<style>
+.result-city { color: #666; font-size: 0.85rem; margin-top: 4px; }
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -255,7 +263,8 @@ function getFormData() {
     const date_from = document.getElementById('date_from').value;
     const date_to = document.getElementById('date_to').value;
     const query = document.getElementById('query').value.trim();
-    return { specialties, date_from, date_to, query };
+    const city = document.getElementById('city').value.trim();
+    return { specialties, date_from, date_to, query, city };
 }
 
 function buildApiUrl(data, page = 1) {
@@ -265,6 +274,7 @@ function buildApiUrl(data, page = 1) {
     if (data.date_from) url.searchParams.set('date_from', data.date_from);
     if (data.date_to) url.searchParams.set('date_to', data.date_to);
     if (data.query) url.searchParams.set('query', data.query);
+    if (data.city) url.searchParams.set('city', data.city);
     return url.toString();
 }
 
@@ -274,6 +284,7 @@ function buildPageUrl(page, data) {
     url.searchParams.set('date_from', data.date_from || '');
     url.searchParams.set('date_to', data.date_to || '');
     url.searchParams.set('query', data.query || '');
+    url.searchParams.set('city', data.city || '');
     if (data.specialties.length > 0) {
         url.searchParams.set('specialties', data.specialties.join(','));
     } else {
@@ -289,8 +300,9 @@ function parseUrlParams() {
     const date_from = params.get('date_from') || '';
     const date_to = params.get('date_to') || '';
     const query = params.get('query') || '';
+    const city = params.get('city') || '';
     const page = parseInt(params.get('page') || '1');
-    return { specialties, date_from, date_to, query, page };
+    return { specialties, date_from, date_to, query, city, page };
 }
 
 function setFormFromParams(params) {
@@ -301,8 +313,9 @@ function setFormFromParams(params) {
     document.getElementById('date_from').value = params.date_from;
     document.getElementById('date_to').value = params.date_to;
     document.getElementById('query').value = params.query;
+    document.getElementById('city').value = params.city || '';
 
-    if (params.specialties.length > 0 || params.date_from || params.date_to || params.query) {
+    if (params.specialties.length > 0 || params.date_from || params.date_to || params.query || params.city) {
         resetBtn.style.display = 'inline-block';
     } else {
         resetBtn.style.display = 'none';
@@ -316,6 +329,7 @@ function clearForm() {
     document.getElementById('date_from').value = '';
     document.getElementById('date_to').value = '';
     document.getElementById('query').value = '';
+    document.getElementById('city').value = '';
     resetBtn.style.display = 'none';
     showAllBtn.style.display = 'inline-block';
 
@@ -324,6 +338,7 @@ function clearForm() {
     url.searchParams.delete('date_from');
     url.searchParams.delete('date_to');
     url.searchParams.delete('query');
+    url.searchParams.delete('city');
     url.searchParams.delete('page');
     window.history.replaceState(null, '', url.toString());
 }
@@ -339,8 +354,8 @@ function saveSearchToSession(data) {
 function performSearch(page = 1, isShowAll = false) {
     const data = getFormData();
 
-    if (!isShowAll && !data.date_from && !data.date_to && !data.query) {
-        alert('Выберите хотя бы один параметр поиска (дата или текст)');
+    if (!isShowAll && !data.date_from && !data.date_to && !data.query && !data.city) {
+        alert('Выберите хотя бы один параметр поиска (дата, текст или город)');
         return;
     }
 
@@ -369,6 +384,7 @@ function getSearchCacheKey(params) {
     if (params.date_from) parts.push('df=' + params.date_from);
     if (params.date_to) parts.push('dt=' + params.date_to);
     if (params.query) parts.push('q=' + encodeURIComponent(params.query));
+    if (params.city) parts.push('c=' + encodeURIComponent(params.city));
     if (params.is_show_all) parts.push('all=1');
     parts.push('p=' + params.page);
     return parts.join('&');
@@ -426,6 +442,7 @@ function renderResults(data) {
             '<span class="pub-badge">' + a.pub_count + ' публ.</span>' +
             '</div>' +
             '<div class="result-meta">' + (a.date_defend || '') + ' | ' + specText + supText + '</div>' +
+            (a.city ? '<div class="result-city">📍 ' + a.city + (a.organization_name ? ' — ' + a.organization_name : '') + '</div>' : '') +
             (a.dissertation_name ? '<div class="result-title">' + a.dissertation_name + '</div>' : '') +
             '</div>';
     });
@@ -433,7 +450,7 @@ function renderResults(data) {
     resultsEl.innerHTML = html;
     renderPagination(data_);
 
-    const cacheKey = getSearchCacheKey({ specialties: lastSearchParams.specialties || [], date_from: lastSearchParams.date_from || '', date_to: lastSearchParams.date_to || '', query: lastSearchParams.query || '', page: lastSearchParams.page || 1, is_show_all: lastSearchParams.is_show_all });
+    const cacheKey = getSearchCacheKey({ specialties: lastSearchParams.specialties || [], date_from: lastSearchParams.date_from || '', date_to: lastSearchParams.date_to || '', query: lastSearchParams.query || '', city: lastSearchParams.city || '', page: lastSearchParams.page || 1, is_show_all: lastSearchParams.is_show_all });
     cacheResults(cacheKey, data_);
 }
 
@@ -534,6 +551,7 @@ window.addEventListener('popstate', (e) => {
             date_from: e.state.date_from || '',
             date_to: e.state.date_to || '',
             query: e.state.query || '',
+            city: e.state.city || '',
             page: parseInt(window.location.search.match(/page=(\d+)/)?.[1] || '1')
         };
         hasState = true;
@@ -545,13 +563,13 @@ window.addEventListener('popstate', (e) => {
 
     const cache = getCachedResults();
     if (cache) {
-        const currentKey = getSearchCacheKey({ specialties: params.specialties, date_from: params.date_from, date_to: params.date_to, query: params.query, page: params.page, is_show_all: false });
+        const currentKey = getSearchCacheKey({ specialties: params.specialties, date_from: params.date_from, date_to: params.date_to, query: params.query, city: params.city, page: params.page, is_show_all: false });
         if (cache.key === currentKey) {
             renderResults(cache.data);
             return;
         }
     }
-    if (hasState && (params.specialties.length > 0 || params.query || params.date_from || params.date_to)) {
+    if (hasState && (params.specialties.length > 0 || params.query || params.date_from || params.date_to || params.city)) {
         performSearch(params.page, params.specialties.length === 0);
     } else if (cache) {
         renderResults(cache.data);
@@ -565,7 +583,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const params = parseUrlParams();
     setFormFromParams(params);
     lastSearchParams = { ...params };
-    const hasSearch = params.specialties.length > 0 || params.date_from || params.date_to || params.query || window.location.search.includes('specialties=');
+    const hasSearch = params.specialties.length > 0 || params.date_from || params.date_to || params.query || params.city || window.location.search.includes('specialties=');
     if (hasSearch) {
         performSearch(params.page, params.specialties.length === 0);
     }

@@ -3,10 +3,11 @@ import gc
 import psutil
 import os
 
-# Настройки: 16 ГБ RAM, оставляем 2 ГБ на систему
-MAX_MEMORY_MB = 12 * 1024  # 12 ГБ — мягкий лимит
-CRITICAL_MEMORY_MB = 14 * 1024  # 14 ГБ — критический, аварийная остановка
-BATCH_SIZE = 10  # обработать N объявлений и сбросить память
+from config import MAX_MEMORY_MB, CRITICAL_MEMORY_MB, BATCH_SIZE
+from logging_config import get_logger
+
+logger = get_logger("memory")
+
 gc_threshold = 0
 
 
@@ -20,11 +21,11 @@ def check_memory():
     """Проверяет потребление памяти. При превышении — сброс GC."""
     mem = get_memory_mb()
     if mem >= CRITICAL_MEMORY_MB:
-        print(f"\n  !!! КРИТИЧЕСКАЯ ПАМЯТЬ: {mem:.0f} МБ, аварийная остановка !!!")
+        logger.critical(f"CRITICAL MEMORY: {mem:.0f} MB, exiting...")
         import sys
         sys.exit(1)
     if mem >= MAX_MEMORY_MB:
-        print(f"\n  Ограничение памяти: {mem:.0f} МБ, сброс GC...")
+        logger.warning(f"Memory limit: {mem:.0f} MB, GC...")
         force_gc()
 
 
@@ -36,4 +37,4 @@ def force_gc():
     gc.collect()
     gc.collect()
     after = gc.get_count()[0]
-    print(f"    GC: {before} -> {after} объектов в gen0")
+    logger.debug(f"GC: {before} -> {after} objects in gen0")

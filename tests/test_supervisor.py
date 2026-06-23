@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Тесты извлечения данных о руководителе."""
-import sys
 import os
+import sys
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
