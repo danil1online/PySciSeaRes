@@ -293,6 +293,10 @@ def map_page():
     specialties = get_all_specialties()
     city_stats = get_city_stats()
     cities = get_unique_cities()
+    logger.info(f"Map page: city_stats={len(city_stats)} cities, cities list={len(cities)} unique")
+    if city_stats:
+        for cs in city_stats[:5]:
+            logger.info(f"  City: {cs.get('city')}, count={cs.get('count')}, specialties={cs.get('specialties')}")
     return render_template("map.html", specialties=specialties, city_stats=city_stats, cities=cities)
 
 

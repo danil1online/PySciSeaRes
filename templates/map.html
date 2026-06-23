@@ -13,7 +13,13 @@
         </div>
     </div>
 
-    <div id="map-container" style="height: 70vh; border-radius: 8px; overflow: hidden; margin-top: 16px;"></div>
+    <div style="text-align: center; margin: 24px 0;">
+        <button id="show-map-btn" class="btn btn-primary" style="padding: 12px 32px; font-size: 16px;">Показать карту</button>
+    </div>
+
+    <div id="map-debug" style="margin: 16px 0; padding: 16px; background: #f5f5f5; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 300px; overflow-y: auto; display: none;"></div>
+
+    <div id="map-container" style="height: 70vh; border-radius: 8px; overflow: hidden; margin-top: 16px; display: none;"></div>
 
     <div class="map-legend" id="map-legend">
         <h3>Легенда</h3>
@@ -115,19 +121,61 @@ function getSpecialtyColor(cipher) {
     return specialtyColors[group] || specialtyColors[parts[0]] || "#999";
 }
 
+function log(msg, level) {
+    const debugEl = document.getElementById('map-debug');
+    debugEl.style.display = 'block';
+    const color = level === 'error' ? '#d32f2f' : level === 'warn' ? '#f57c00' : '#2e7d32';
+    debugEl.innerHTML += `<div style="color: ${color}; margin: 2px 0;">[${level || 'log'}] ${new Date().toLocaleTimeString()} — ${msg}</div>`;
+    console[level || 'log'](msg);
+    debugEl.scrollTop = debugEl.scrollHeight;
+}
+
 function initMap() {
+    log('=== initMap START ===', 'log');
+
+    log('cityStats type: ' + typeof cityStats, 'log');
+    log('cityStats value: ' + JSON.stringify(cityStats), 'log');
+    log('cityStats length: ' + (Array.isArray(cityStats) ? cityStats.length : 'N/A'), 'log');
+    log('cities type: ' + typeof cities, 'log');
+    log('cities value: ' + JSON.stringify(cities), 'log');
+
+    if (!Array.isArray(cityStats) || cityStats.length === 0) {
+        log('WARNING: cityStats is empty or not an array!', 'warn');
+        log('cityStats raw: ' + cityStats, 'warn');
+        document.getElementById('total-cities').textContent = '0 (empty)';
+        document.getElementById('total-defenses').textContent = '0 (empty)';
+        document.getElementById('map-container').style.display = 'block';
+        document.getElementById('map-container').innerHTML = '<div style="padding: 40px; text-align: center; color: #666;"><h2>Нет данных для отображения</h2><p>В БД нет записей с заполненным полем "city". Запустите <code>python daily_sync.py</code> для обработки авторефератов.</p><p>Или проверьте данные в БД: <code>sqlite3 instance/vak.db "SELECT COUNT(*) FROM adverts WHERE city IS NOT NULL AND city != \'\\";"</code></p></div>';
+        return;
+    }
+
+    log('cityStats entries:', 'log');
+    cityStats.forEach(s => {
+        log('  - city: "' + s.city + '", count: ' + s.count + ', specialties: ' + JSON.stringify(s.specialties), 'log');
+    });
+
+    log('Leaflet loaded: ' + (typeof L !== 'undefined'), 'log');
+    if (typeof L === 'undefined') {
+        document.getElementById('map-container').style.display = 'block';
+        document.getElementById('map-container').innerHTML = '<div style="padding: 40px; text-align: center; color: #d32f2f;"><h2>Ошибка загрузки карты</h2><p>Leaflet.js не загружен. Проверьте подключение к интернету.</p></div>';
+        return;
+    }
+
     const map = L.map('map-container').setView([55.7558, 37.6173], 4);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
+    log('Map tiles loaded', 'log');
 
     const specialtyFilter = document.getElementById('specialty-filter').value;
+    log('Specialty filter: ' + specialtyFilter, 'log');
     const filteredStats = cityStats.filter(s => {
         if (specialtyFilter !== 'all') {
             return s.specialties[specialtyFilter] > 0;
         }
         return true;
     });
+    log('Filtered stats count: ' + filteredStats.length, 'log');
 
     map.eachLayer(layer => {
         if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
@@ -135,8 +183,10 @@ function initMap() {
         }
     });
 
+    let markerCount = 0;
     filteredStats.forEach(stat => {
         const coords = getCityCoords(stat.city);
+        log('  Processing: "' + stat.city + '" -> coords: ' + JSON.stringify(coords), 'log');
         if (!coords) return;
 
         const radius = Math.max(8, Math.min(30, Math.sqrt(stat.count) * 4));
@@ -148,6 +198,7 @@ function initMap() {
             radius: radius, fillColor: color, color: '#333',
             weight: 1, opacity: 1, fillOpacity: 0.7
         }).addTo(map);
+        markerCount++;
 
         const tooltip = `<strong>${stat.city}</strong><br>` +
             `Всего защит: ${stat.count}<br>` +
@@ -156,6 +207,7 @@ function initMap() {
         marker.bindPopup(`<strong>${stat.city}</strong><br>Защит: ${stat.count}<br>${Object.entries(stat.specialties).map(([s, c]) => `${s}: ${c} защит`).join('<br>')}`);
     });
 
+    log('Markers placed: ' + markerCount, 'log');
     document.getElementById('total-cities').textContent = filteredStats.length;
     document.getElementById('total-defenses').textContent = filteredStats.reduce((sum, s) => sum + s.count, 0);
 
@@ -172,9 +224,18 @@ function initMap() {
         </div>`
     ).join('');
     document.getElementById('legend-colors').innerHTML = legendHtml;
+
+    log('=== initMap DONE (markers: ' + markerCount + ') ===', 'log');
 }
 
 document.getElementById('specialty-filter').addEventListener('change', initMap);
+
+document.getElementById('show-map-btn').addEventListener('click', function() {
+    this.style.display = 'none';
+    document.getElementById('map-container').style.display = 'block';
+    log('Button "Показать карту" clicked', 'log');
+// initMap() called on button click
+});
 
 // Populate specialty filter with full cipher codes
 const specialtyFilter = document.getElementById('specialty-filter');
