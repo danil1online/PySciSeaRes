@@ -46,6 +46,7 @@ def search_adverts(specialties=None, date_from=None, date_to=None, query=None,
                a.supervisor_name, a.supervisor_work,
                a.council_cipher, a.defend_org,
                a.autoref_url, a.autoref_path,
+               a.city, a.organization_name,
                COUNT(p.id) as pub_count
         FROM adverts a
         LEFT JOIN publications p ON p.advert_id = a.id
@@ -140,7 +141,9 @@ def search_adverts(specialties=None, date_from=None, date_to=None, query=None,
             "defend_org": row[9],
             "autoref_url": row[10],
             "autoref_path": row[11],
-            "pub_count": row[12],
+            "city": row[12],
+            "organization_name": row[13],
+            "pub_count": row[14],
         })
 
     total_pages = (total + per_page - 1) // per_page if total > 0 else 0

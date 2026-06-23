@@ -461,6 +461,13 @@ def detail(advert_id):
         db_conn.close()
     except Exception as e:
         logger.debug(f"Detail DB fetch error: {e}")
+    if not advert.get("city") and advert.get("city") != "":
+        from vak_sync.vak_api import get_advert_detail as _vak_detail
+        _detail = _vak_detail(advert_id)
+        if _detail and _detail.get("city"):
+            advert.setdefault("city", _detail["city"])
+        if _detail and _detail.get("organization_name"):
+            advert.setdefault("organization_name", _detail["organization_name"])
     search_params = session.get("last_search", {})
     back_qs = ""
     if search_params:
