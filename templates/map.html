@@ -1,18 +1,20 @@
 {% extends "base.html" %}
 {% block title %}Карта защит{% endblock %}
 {% block content %}
-<div class="map-page">
-    <h1>Карта защит по городам</h1>
-    <div class="map-controls">
-        <div class="form-group">
-            <label>Специальность:</label>
-            <select id="specialty-filter">
-                <option value="all">Все специальности</option>
-            </select>
+<div id="map-layout">
+    <div id="map-header">
+        <h1>Карта защит по городам</h1>
+        <div class="map-controls">
+            <div class="form-group">
+                <label>Специальность:</label>
+                <select id="specialty-filter">
+                    <option value="all">Все специальности</option>
+                </select>
+            </div>
         </div>
     </div>
-    <div id="map-container" style="width:100%;height:600px;margin-top:16px;border-radius:8px;overflow:hidden;"></div>
-    <div class="map-stats" id="map-stats">
+    <div id="map-container"></div>
+    <div id="map-stats">
         <p>Всего городов: <span id="total-cities">0</span></p>
         <p>Всего защит: <span id="total-defenses">0</span></p>
     </div>
@@ -23,8 +25,8 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const cityStats = {{ city_stats | tojson }};
-const specialties = {{ specialties | tojson }};
+const cityStatsList = {{ city_stats | tojson }};
+const specialtyCatalog = {{ specialties | tojson }};
 
 const specialtyColors = {
     "1":"#1f77b4","1.1":"#1f77b4","1.2":"#1f77b4","1.3":"#1f77b4","1.4":"#1f77b4","1.5":"#1f77b4","1.6":"#1f77b4",
@@ -34,7 +36,6 @@ const specialtyColors = {
     "5":"#9467bd","5.1":"#9467bd","5.2":"#9467bd","5.3":"#9467bd","5.4":"#9467bd","5.5":"#9467bd","5.6":"#9467bd","5.7":"#9467bd","5.8":"#9467bd","5.9":"#9467bd","5.10":"#9467bd","5.11":"#9467bd","5.12":"#9467bd",
 };
 
-// City coordinates: [lat, lng]
 const cityCoords = {
     "москва":[55.7558,37.6173],"москве":[55.7558,37.6173],
     "санкт-петербург":[59.9343,30.3351],"петербург":[59.9343,30.3351],"спб":[59.9343,30.3351],
@@ -54,6 +55,46 @@ const cityCoords = {
     "сочи":[43.5855,39.7231],"донецк":[48.0066,37.8017],
 };
 
+// Normalize city name: lowercase, strip whitespace
+function normalizeCity(name) {
+    return (name || "").toLowerCase().trim();
+}
+
+// Find coords for a city name (with fuzzy matching)
+function findCoords(cityName) {
+    const key = normalizeCity(cityName);
+    if (cityCoords[key]) return cityCoords[key];
+
+    // Try partial match
+    for (const [k, v] of Object.entries(cityCoords)) {
+        if (key.includes(k) || k.includes(key)) return v;
+    }
+    return null;
+}
+
+// Transform backend list -> flat object
+const cityStats = {};
+const allSpecialties = new Set();
+
+cityStatsList.forEach(item => {
+    const key = normalizeCity(item.city);
+    const coords = findCoords(item.city);
+    if (!coords) return;
+
+    const specEntries = Object.entries(item.specialties || {});
+    specEntries.forEach(([spec]) => allSpecialties.add(spec));
+
+    const primarySpec = specEntries.length > 0 ? specEntries.sort((a,b) => b[1] - a[1])[0][0] : "0";
+
+    cityStats[key] = {
+        lat: coords[0],
+        lng: coords[1],
+        count: item.count,
+        specialty: primarySpec,
+        specialties: item.specialties || {}
+    };
+});
+
 let map = null;
 let markersLayer = null;
 
@@ -61,14 +102,7 @@ function createIcon(color, radius) {
     const size = radius * 2;
     return L.divIcon({
         className: 'city-marker',
-        html: `<div style="
-            width: ${size}px;
-            height: ${size}px;
-            background: ${color};
-            border-radius: 50%;
-            border: 2px solid #fff;
-            box-shadow: 0 0 10px ${color}88, 0 0 20px ${color}44;
-        "></div>`,
+        html: `<div style="width:${size}px;height:${size}px;background:${color};border-radius:50%;border:2px solid #fff;box-shadow:0 0 10px ${color}88,0 0 20px ${color}44;"></div>`,
         iconSize: [size, size],
         iconAnchor: [radius, radius],
     });
@@ -77,38 +111,26 @@ function createIcon(color, radius) {
 function drawMap() {
     const filter = document.getElementById('specialty-filter').value;
 
-    // Calculate max count for scaling
-    let maxCount = 0;
-    Object.values(cityStats).forEach(s => { if (s.count > maxCount) maxCount = s.count; });
-
-    // Remove old markers
     if (markersLayer) map.removeLayer(markersLayer);
     markersLayer = L.layerGroup();
 
-    // Add markers
     Object.entries(cityStats).forEach(([name, data]) => {
         if (filter !== 'all' && data.specialty !== filter) return;
 
-        const key = name.toLowerCase().trim();
-        const coords = cityCoords[key];
-        if (!coords) return;
-
-        const [lat, lng] = coords;
-        const radius = maxCount > 0 ? Math.max(8, Math.sqrt(data.count / maxCount) * 25) : 12;
+        const radius = Math.max(8, Math.sqrt(data.count) * 10);
         const color = specialtyColors[data.specialty] || '#888';
 
-        const marker = L.marker([lat, lng], {
+        const marker = L.marker([data.lat, data.lng], {
             icon: createIcon(color, radius),
             riseOnHover: true,
         });
 
-        marker.bindPopup(`
-            <div style="text-align:center;font-family:monospace;">
-                <strong>${name}</strong><br>
-                ${data.count} защит<br>
-                <small>спец. ${data.specialty}</small>
-            </div>
-        `);
+        const specList = Object.entries(data.specialties || {})
+            .map(([s, c]) => `${s}: ${c}`)
+            .join('<br>');
+
+        marker.bindPopup(`<div style="text-align:center;font-family:monospace;font-size:13px;">
+            <strong>${name}</strong><br>${data.count} защит<br><small>${specList}</small></div>`);
 
         markersLayer.addLayer(marker);
     });
@@ -117,30 +139,28 @@ function drawMap() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize map
     map = L.map('map-container', {
-        center: [62, 75],
+        center: [62, 85],
         zoom: 4,
         minZoom: 3,
         maxZoom: 10,
-        zoomControl: true,
     });
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        attribution: '&copy; OpenStreetMap',
         maxZoom: 18,
     }).addTo(map);
 
-    // Filter
-    document.getElementById('specialty-filter').addEventListener('change', drawMap);
+    // Populate specialty filter
+    const filterEl = document.getElementById('specialty-filter');
+    filterEl.addEventListener('change', drawMap);
 
-    // Populate filter
-    const allSpecialties = [...new Set(Object.values(cityStats).map(s => s.specialty))].sort();
+    // Add specialties from city data
     allSpecialties.forEach(s => {
         const opt = document.createElement('option');
         opt.value = s;
         opt.textContent = s;
-        document.getElementById('specialty-filter').appendChild(opt);
+        filterEl.appendChild(opt);
     });
 
     // Stats
@@ -149,11 +169,16 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('total-cities').textContent = cities;
     document.getElementById('total-defenses').textContent = defenses;
 
-    // Initial draw
     drawMap();
+    setTimeout(() => { map.invalidateSize(); }, 200);
 });
 </script>
 <style>
+#map-layout { display: flex; flex-direction: column; height: 100%; width: 100%; }
+#map-header { padding: 16px; background: white; border-bottom: 1px solid #e2e8f0; }
+#map-header h1 { margin: 0 0 12px 0; font-size: 24px; color: #1e293b; }
+#map-container { flex: 1; min-height: 500px; width: 100%; }
+#map-stats { padding: 12px 16px; background: white; border-top: 1px solid #e2e8f0; font-size: 14px; color: #555; }
 .city-marker { background: transparent !important; border: none !important; }
 </style>
 {% endblock %}
