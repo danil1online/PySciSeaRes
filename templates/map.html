@@ -1,13 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Карта защит{% endblock %}
-{% block extra_head %}
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-      crossorigin=""/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-        crossorigin=""></script>
-{% endblock %}
 {% block content %}
 <div class="map-page">
     <h1>Карта защит по городам</h1>
@@ -21,13 +13,7 @@
         </div>
     </div>
 
-    <div style="text-align: center; margin: 24px 0;">
-        <button id="show-map-btn" class="btn btn-primary" style="padding: 12px 32px; font-size: 16px;">Показать карту</button>
-    </div>
-
-    <div id="map-debug" style="margin: 16px 0; padding: 16px; background: #f5f5f5; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 300px; overflow-y: auto; display: none;"></div>
-
-    <div id="map-container" style="height: 70vh; border-radius: 8px; overflow: hidden; margin-top: 16px; display: none;"></div>
+    <div id="map-container" style="position: relative; width: 100%; margin-top: 16px; background: #0d1b2a; border-radius: 8px; overflow: hidden;"></div>
 
     <div class="map-legend" id="map-legend">
         <h3>Легенда</h3>
@@ -111,11 +97,19 @@ const cityCoords = {
     "кашира": [55.3667, 38.3167], "сочи": [43.5855, 39.7231],
 };
 
+// Equirectangular projection → SVG coords
+const LON_MIN = 25, LON_MAX = 190;
+const LAT_MIN = 40, LAT_MAX = 83;
+const SVG_W = 1000, SVG_H = 500;
+
+function lngToX(lng) { return ((lng - LON_MIN) / (LON_MAX - LON_MIN)) * SVG_W; }
+function latToY(lat) { return SVG_H - ((lat - LAT_MIN) / (LAT_MAX - LAT_MIN)) * SVG_H; }
+
 function getCityCoords(city) {
     const lower = city.toLowerCase().trim();
     if (cityCoords[lower]) return cityCoords[lower];
-    const noPrefix = lower.replace(/^г\.\s*/, '');
-    if (cityCoords[noPrefix]) return cityCoords[noPrefix];
+    const clean = lower.replace(/^г\.\s*/, '').replace(/\s*-\s*$/, '');
+    if (cityCoords[clean]) return cityCoords[clean];
     for (const [key, coords] of Object.entries(cityCoords)) {
         if (lower.includes(key) || key.includes(lower)) return coords;
     }
@@ -129,102 +123,182 @@ function getSpecialtyColor(cipher) {
     return specialtyColors[group] || specialtyColors[parts[0]] || "#999";
 }
 
-function log(msg, level) {
-    const debugEl = document.getElementById('map-debug');
-    debugEl.style.display = 'block';
-    const color = level === 'error' ? '#d32f2f' : level === 'warn' ? '#f57c00' : '#2e7d32';
-    debugEl.innerHTML += `<div style="color: ${color}; margin: 2px 0;">[${level || 'log'}] ${new Date().toLocaleTimeString()} — ${msg}</div>`;
-    console[level || 'log'](msg);
-    debugEl.scrollTop = debugEl.scrollHeight;
-}
-
-function initMap() {
-    log('=== initMap START ===', 'log');
-
-    log('cityStats type: ' + typeof cityStats, 'log');
-    log('cityStats value: ' + JSON.stringify(cityStats), 'log');
-    log('cityStats length: ' + (Array.isArray(cityStats) ? cityStats.length : 'N/A'), 'log');
-    log('cities type: ' + typeof cities, 'log');
-    log('cities value: ' + JSON.stringify(cities), 'log');
+function renderMap() {
+    const container = document.getElementById('map-container');
+    container.innerHTML = '';
 
     if (!Array.isArray(cityStats) || cityStats.length === 0) {
-        log('WARNING: cityStats is empty or not an array!', 'warn');
-        log('cityStats raw: ' + cityStats, 'warn');
-        document.getElementById('total-cities').textContent = '0 (empty)';
-        document.getElementById('total-defenses').textContent = '0 (empty)';
-        document.getElementById('map-container').style.display = 'block';
-        document.getElementById('map-container').innerHTML = '<div style="padding: 40px; text-align: center; color: #666;"><h2>Нет данных для отображения</h2><p>В БД нет записей с заполненным полем "city". Запустите <code>python daily_sync.py</code> для обработки авторефератов.</p><p>Или проверьте данные в БД: <code>sqlite3 instance/vak.db "SELECT COUNT(*) FROM adverts WHERE city IS NOT NULL AND city != \'\\";"</code></p></div>';
+        container.innerHTML = '<div style="padding: 60px 20px; text-align: center; color: #8ab;"><h2>Нет данных для отображения</h2><p>В БД нет записей с заполненным полем "city".</p><p>Запустите <code>python daily_sync.py</code> для обработки авторефератов.</p></div>';
+        document.getElementById('total-cities').textContent = '0';
+        document.getElementById('total-defenses').textContent = '0';
         return;
     }
 
-    log('cityStats entries:', 'log');
-    cityStats.forEach(s => {
-        log('  - city: "' + s.city + '", count: ' + s.count + ', specialties: ' + JSON.stringify(s.specialties), 'log');
-    });
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${SVG_W} ${SVG_H}`);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.style.width = '100%';
+    svg.style.height = 'auto';
+    svg.style.display = 'block';
 
-    log('Leaflet loaded: ' + (typeof L !== 'undefined'), 'log');
-    if (typeof L === 'undefined') {
-        document.getElementById('map-container').style.display = 'block';
-        document.getElementById('map-container').innerHTML = '<div style="padding: 40px; text-align: center; color: #d32f2f;"><h2>Ошибка загрузки карты</h2><p>Leaflet.js не загружен. Проверьте подключение к интернету.</p></div>';
-        return;
+    // Background
+    const bg = document.createElementNS(ns, 'rect');
+    bg.setAttribute('width', SVG_W);
+    bg.setAttribute('height', SVG_H);
+    bg.setAttribute('fill', '#0d1b2a');
+    svg.appendChild(bg);
+
+    // Russia outline — equirectangular projection
+    const russiaPath = 'M 30,163 L 61,151 L 91,140 L 121,128 L 152,116 L 212,105 ' +
+        'L 273,93 L 333,81 L 394,70 L 455,58 L 515,58 L 576,47 L 636,47 L 697,58 ' +
+        'L 758,70 L 818,81 L 879,105 L 939,128 L 1000,151 L 1000,209 L 970,267 ' +
+        'L 939,326 L 909,360 L 879,384 L 848,407 L 818,430 L 788,442 L 727,442 ' +
+        'L 667,430 L 636,407 L 667,384 L 697,360 L 727,326 L 818,291 L 848,326 ' +
+        'L 879,360 L 697,326 L 636,349 L 576,360 L 515,360 L 455,360 L 394,360 ' +
+        'L 333,360 L 273,360 L 242,349 L 212,337 L 182,337 L 152,349 L 121,360 ' +
+        'L 91,384 L 73,419 L 61,430 L 42,407 L 30,384 L 18,360 L 12,326 L 18,291 ' +
+        'L 30,267 L 18,244 L 12,221 L 18,198 L 30,174 Z';
+
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', russiaPath);
+    path.setAttribute('fill', '#1b2838');
+    path.setAttribute('stroke', '#3a5a7a');
+    path.setAttribute('stroke-width', '2');
+    path.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(path);
+
+    // Grid lines
+    const gridOpacity = '0.12';
+    for (let lon = 30; lon <= 180; lon += 30) {
+        const x = lngToX(lon);
+        const line = document.createElementNS(ns, 'line');
+        line.setAttribute('x1', x); line.setAttribute('y1', 0);
+        line.setAttribute('x2', x); line.setAttribute('y2', SVG_H);
+        line.setAttribute('stroke', '#4a7a9a');
+        line.setAttribute('stroke-width', '0.5');
+        line.setAttribute('opacity', gridOpacity);
+        svg.appendChild(line);
+    }
+    for (let lat = 45; lat <= 80; lat += 10) {
+        const y = latToY(lat);
+        const line = document.createElementNS(ns, 'line');
+        line.setAttribute('x1', 0); line.setAttribute('y1', y);
+        line.setAttribute('x2', SVG_W); line.setAttribute('y2', y);
+        line.setAttribute('stroke', '#4a7a9a');
+        line.setAttribute('stroke-width', '0.5');
+        line.setAttribute('opacity', gridOpacity);
+        svg.appendChild(line);
     }
 
-    const map = L.map('map-container').setView([55.7558, 37.6173], 4);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-    log('Map tiles loaded', 'log');
+    // Latitude labels
+    for (let lat = 45; lat <= 80; lat += 10) {
+        const y = latToY(lat);
+        const text = document.createElementNS(ns, 'text');
+        text.setAttribute('x', 4);
+        text.setAttribute('y', y - 3);
+        text.setAttribute('fill', '#4a7a9a');
+        text.setAttribute('font-size', '10');
+        text.setAttribute('opacity', '0.5');
+        text.textContent = lat + '°';
+        svg.appendChild(text);
+    }
 
+    // Longitude labels
+    for (let lon = 30; lon <= 180; lon += 30) {
+        const x = lngToX(lon);
+        const text = document.createElementNS(ns, 'text');
+        text.setAttribute('x', x);
+        text.setAttribute('y', SVG_H - 5);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('fill', '#4a7a9a');
+        text.setAttribute('font-size', '10');
+        text.setAttribute('opacity', '0.5');
+        text.textContent = lon + '°';
+        svg.appendChild(text);
+    }
+
+    // Markers
     const specialtyFilter = document.getElementById('specialty-filter').value;
-    log('Specialty filter: ' + specialtyFilter, 'log');
     const filteredStats = cityStats.filter(s => {
         if (specialtyFilter !== 'all') {
             return s.specialties[specialtyFilter] > 0;
         }
         return true;
     });
-    log('Filtered stats count: ' + filteredStats.length, 'log');
-
-    map.eachLayer(layer => {
-        if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
-            map.removeLayer(layer);
-        }
-    });
 
     let markerCount = 0;
+    const usedColors = new Set();
+
     filteredStats.forEach(stat => {
         const coords = getCityCoords(stat.city);
-        log('  Processing: "' + stat.city + '" -> coords: ' + JSON.stringify(coords), 'log');
         if (!coords) return;
+        const x = lngToX(coords[1]);
+        const y = latToY(coords[0]);
+        if (x < 10 || x > SVG_W - 10 || y < 10 || y > SVG_H - 10) return;
 
-        const radius = Math.max(8, Math.min(30, Math.sqrt(stat.count) * 4));
+        const radius = Math.max(4, Math.min(20, Math.sqrt(stat.count) * 3));
         const primarySpecialty = Object.entries(stat.specialties)
             .sort((a, b) => b[1] - a[1])[0];
         const color = getSpecialtyColor(primarySpecialty[0]);
+        usedColors.add(color);
 
-        const marker = L.circleMarker(coords, {
-            radius: radius, fillColor: color, color: '#333',
-            weight: 1, opacity: 1, fillOpacity: 0.7
-        }).addTo(map);
+        const g = document.createElementNS(ns, 'g');
+        g.style.cursor = 'pointer';
+
+        // Glow
+        const glow = document.createElementNS(ns, 'circle');
+        glow.setAttribute('cx', x); glow.setAttribute('cy', y);
+        glow.setAttribute('r', radius + 3);
+        glow.setAttribute('fill', color);
+        glow.setAttribute('opacity', '0.2');
+        g.appendChild(glow);
+
+        // Main dot
+        const circle = document.createElementNS(ns, 'circle');
+        circle.setAttribute('cx', x); circle.setAttribute('cy', y);
+        circle.setAttribute('r', radius);
+        circle.setAttribute('fill', color);
+        circle.setAttribute('stroke', '#fff');
+        circle.setAttribute('stroke-width', '1.5');
+        circle.setAttribute('opacity', '0.85');
+        g.appendChild(circle);
+
+        // Title tooltip
+        const title = document.createElementNS(ns, 'title');
+        title.textContent = `${stat.city} — ${stat.count} защит`;
+        g.appendChild(title);
+
+        // Label for big markers
+        if (radius >= 8) {
+            const label = document.createElementNS(ns, 'text');
+            label.setAttribute('x', x);
+            label.setAttribute('y', y - radius - 6);
+            label.setAttribute('text-anchor', 'middle');
+            label.setAttribute('fill', '#e0e0e0');
+            label.setAttribute('font-size', '10');
+            label.setAttribute('font-weight', 'bold');
+            label.style.pointerEvents = 'none';
+            label.textContent = stat.city;
+            g.appendChild(label);
+        }
+
+        // Click → detail page
+        g.addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.href = `/detail/${encodeURIComponent(stat.city)}`;
+            link.target = '_blank';
+            link.click();
+        });
+
+        svg.appendChild(g);
         markerCount++;
-
-        const tooltip = `<strong>${stat.city}</strong><br>` +
-            `Всего защит: ${stat.count}<br>` +
-            `Специальности: ${Object.entries(stat.specialties).map(([s, c]) => `${s}: ${c}`).join(', ')}`;
-        marker.bindTooltip(tooltip, { sticky: true });
-        marker.bindPopup(`<strong>${stat.city}</strong><br>Защит: ${stat.count}<br>${Object.entries(stat.specialties).map(([s, c]) => `${s}: ${c} защит`).join('<br>')}`);
     });
 
-    log('Markers placed: ' + markerCount, 'log');
+    container.appendChild(svg);
     document.getElementById('total-cities').textContent = filteredStats.length;
     document.getElementById('total-defenses').textContent = filteredStats.reduce((sum, s) => sum + s.count, 0);
 
-    const usedColors = new Set();
-    filteredStats.forEach(s => {
-        const primarySpecialty = Object.entries(s.specialties)
-            .sort((a, b) => b[1] - a[1])[0];
-        if (primarySpecialty) usedColors.add(getSpecialtyColor(primarySpecialty[0]));
-    });
     const legendHtml = Array.from(usedColors).map(color =>
         `<div style="display: flex; align-items: center; gap: 8px; margin: 4px 0;">
             <div style="width: 16px; height: 16px; border-radius: 50%; background: ${color}; border: 1px solid #333;"></div>
@@ -232,20 +306,10 @@ function initMap() {
         </div>`
     ).join('');
     document.getElementById('legend-colors').innerHTML = legendHtml;
-
-    log('=== initMap DONE (markers: ' + markerCount + ') ===', 'log');
 }
 
-document.getElementById('specialty-filter').addEventListener('change', initMap);
+document.getElementById('specialty-filter').addEventListener('change', renderMap);
 
-document.getElementById('show-map-btn').addEventListener('click', function() {
-    this.style.display = 'none';
-    document.getElementById('map-container').style.display = 'block';
-    log('Button "Показать карту" clicked', 'log');
-// initMap() called on button click
-});
-
-// Populate specialty filter with full cipher codes
 const specialtyFilter = document.getElementById('specialty-filter');
 specialtyGroups.forEach(group => {
     if (group.specialties) {
@@ -258,7 +322,7 @@ specialtyGroups.forEach(group => {
     }
 });
 
-initMap();
+renderMap();
 </script>
 <style>
 .map-page { max-width: 1200px; margin: 0 auto; }
