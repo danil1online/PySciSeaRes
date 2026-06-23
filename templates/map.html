@@ -11,7 +11,7 @@
             </select>
         </div>
     </div>
-    <div id="map-plotly" style="width:100%;height:600px;margin-top:16px;"></div>
+    <div id="map-container" style="width:100%;height:600px;margin-top:16px;background:#0a1628;border-radius:8px;overflow:hidden;position:relative;"></div>
     <div class="map-stats" id="map-stats">
         <p>Всего городов: <span id="total-cities">0</span></p>
         <p>Всего защит: <span id="total-defenses">0</span></p>
@@ -20,7 +20,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.plot.ly/plotly-2.35.0.min.js" crossorigin="anonymous"></script>
 <script>
 const cityStats = {{ city_stats | tojson }};
 const specialties = {{ specialties | tojson }};
@@ -33,161 +32,178 @@ const specialtyColors = {
     "5":"#9467bd","5.1":"#9467bd","5.2":"#9467bd","5.3":"#9467bd","5.4":"#9467bd","5.5":"#9467bd","5.6":"#9467bd","5.7":"#9467bd","5.8":"#9467bd","5.9":"#9467bd","5.10":"#9467bd","5.11":"#9467bd","5.12":"#9467bd",
 };
 
-// Pre-computed city coordinates in EPSG:32646 (x, y) from pyproj EPSG:4326->32646
-const cityCoordsEPSG32646 = {
-    "москва": [-2702979, 7640472],
-    "санкт-петербург": [-2558308, 8337643],
-    "новосибирск": [-142518, 6142155],
-    "екатеринбург": [-1429336, 6776250],
-    "казань": [-2129577, 7087828],
-    "нижний новгород": [-2354627, 7365407],
-    "челябинск": [-1470854, 6578025],
-    "самара": [-2266451, 6795008],
-    "омск": [-750115, 6272233],
-    "красноярск": [493342, 6207788],
-    "пермь": [-1599116, 7033275],
-    "воронеж": [-3014280, 7208707],
-    "ростов-на-дону": [-3398328, 6774307],
-    "уфа": [-1818116, 6714777],
-    "краснодар": [-3652984, 6611362],
-    "вологда": [-2278522, 7804115],
-    "тула": [-2853522, 7513557],
-    "калуга": [-2884445, 7617328],
-    "ярославль": [-2425531, 7674623],
-    "тверь": [-2669347, 7819474],
-    "иркутск": [1269078, 5854399],
-    "томск": [7697, 6290627],
-    "белгород": [-3258805, 7274213],
-    "курск": [-3166648, 7395159],
-    "липецк": [-2906039, 7267991],
-    "тамбов": [-2794890, 7174467],
-    "владимир": [-2539117, 7524222],
-    "рязань": [-2711740, 7434967],
-    "пенза": [-2557945, 7033015],
-    "саратов": [-2634391, 6826800],
-    "волгоград": [-2959006, 6631675],
-    "брянск": [-3102389, 7629976],
-    "смоленск": [-3045230, 7888924],
-    "псков": [-2853565, 8317567],
-    "мурманск": [-1554451, 8779968],
-    "архангельск": [-1769843, 8192841],
-    "орел": [-3049460, 7502867],
-    "киров": [-1890374, 7327953],
-    "набережные челны": [-1951574, 6943632],
-    "ижевск": [-1834875, 7025939],
-    "череповец": [-2366669, 7892229],
-    "сочи": [-3735892, 6418253],
-    "донецк": [-3443918, 6967861],
+// City coordinates: [lat, lng]
+const cityCoords = {
+    "москва":[55.7558,37.6173],"москве":[55.7558,37.6173],
+    "санкт-петербург":[59.9343,30.3351],"петербург":[59.9343,30.3351],"спб":[59.9343,30.3351],
+    "новосибирск":[55.0084,82.9357],"екатеринбург":[56.8389,60.6057],"казань":[55.7961,49.1064],
+    "нижний новгород":[56.2965,43.9361],"челябинск":[55.1644,61.4368],"самара":[53.1959,50.1002],
+    "омск":[54.9885,73.3242],"красноярск":[56.0153,92.8932],"пермь":[58.0105,56.2294],
+    "воронеж":[51.6683,39.1840],"ростов-на-дону":[47.2357,39.7015],"уфа":[54.7388,55.9721],
+    "краснодар":[45.0355,38.9753],"вологда":[59.2239,39.8839],"тула":[54.1961,37.6182],
+    "калуга":[54.5293,36.2754],"ярославль":[57.6261,39.8845],"тверь":[56.8587,35.9176],
+    "иркутск":[52.2970,104.2964],"томск":[56.5012,84.9924],"белгород":[50.5997,36.5881],
+    "курск":[51.7372,36.1874],"липецк":[52.6031,39.5708],"тамбов":[52.7219,41.4436],
+    "владимир":[56.1290,40.4071],"рязань":[54.6269,39.6916],"пенза":[53.2001,45.0049],
+    "саратов":[51.5462,46.0154],"волгоград":[48.7080,44.5133],"брянск":[53.2521,34.3717],
+    "смоленск":[54.7826,32.0453],"псков":[57.8194,28.3318],"мурманск":[68.9585,33.0827],
+    "архангельск":[64.5401,40.5433],"орел":[52.9651,36.0785],"киров":[58.6035,49.6680],
+    "набережные челны":[55.7251,52.4840],"ижевск":[56.8527,53.2114],"череповец":[59.1369,37.9069],
+    "сочи":[43.5855,39.7231],"донецк":[48.0066,37.8017],
 };
 
-let allTraces = [];
+// Russia outline: [lat, lng] - simplified border
+const RUSSIA_OUTLINE = [
+    [69.9,28.4],[69.5,30.0],[69.0,32.0],[68.5,34.0],[68.0,36.0],
+    [67.5,38.0],[67.0,40.0],[66.5,42.0],[66.0,44.0],[65.5,46.0],
+    [65.0,48.0],[64.5,50.0],[64.0,52.0],[63.5,54.0],[63.0,56.0],
+    [63.5,58.0],[64.5,60.0],[65.5,62.0],[66.5,64.0],[67.5,66.0],
+    [68.5,68.0],[69.5,70.0],[70.5,72.0],[71.5,74.0],[72.5,76.0],
+    [73.5,78.0],[74.5,80.0],[75.5,82.0],[76.5,84.0],[77.5,86.0],
+    [78.5,88.0],[79.5,90.0],[80.0,95.0],[80.0,100.0],[79.5,105.0],
+    [79.0,110.0],[78.0,120.0],[77.0,130.0],[76.0,140.0],[75.0,150.0],
+    [74.0,160.0],[73.0,170.0],[72.0,180.0],[71.0,185.0],[70.0,190.0],
+    [69.0,188.0],[68.0,185.0],[67.0,182.0],[66.0,180.0],[65.0,178.0],
+    [64.0,176.0],[63.0,174.0],[62.0,172.0],[61.0,170.0],[60.0,168.0],
+    [59.0,166.0],[58.0,164.0],[57.0,162.0],[56.0,160.0],[55.0,158.0],
+    [54.0,156.0],[53.0,155.0],[52.0,155.0],[51.0,156.0],[50.0,158.0],
+    [49.0,160.0],[48.0,162.0],[47.0,164.0],[46.0,166.0],[45.0,168.0],
+    [44.0,170.0],[43.0,172.0],[42.0,176.0],[42.0,178.0],
+    [42.0,170.0],[42.0,160.0],[43.0,150.0],[44.0,140.0],[45.0,130.0],
+    [46.0,120.0],[47.0,110.0],[48.0,100.0],[49.0,90.0],[50.0,80.0],
+    [50.0,70.0],[50.0,60.0],[50.0,50.0],[50.0,45.0],
+    [50.0,42.0],[50.0,38.0],[50.0,35.0],[50.0,32.0],[50.0,30.0],
+    [52.0,30.0],[53.0,29.0],[54.0,28.5],[55.0,28.0],[55.5,27.5],
+    [56.0,27.0],[57.0,26.0],[58.0,25.0],[59.0,24.0],[60.0,23.0],
+    [61.0,22.0],[62.0,21.0],[63.0,20.0],[64.0,19.0],[65.0,18.0],
+    [66.0,17.0],[67.0,16.0],[68.0,15.0],[69.0,14.0],[69.5,13.0],
+    [69.9,12.0],[70.0,15.0],[70.0,18.0],[70.0,22.0],[69.9,28.4],
+];
 
-function loadMapData() {
-    fetch('/data/russia_regions_transformed.json')
-        .then(r => r.json())
-        .then(regionsData => {
-            const regionTraces = [];
-            for (const feat of regionsData.features) {
-                const coords = feat.geometry.coordinates;
-                const name = feat.properties.region;
+// Projection: lat/lng -> SVG coordinates
+const MARGIN = {left: 40, right: 40, top: 30, bottom: 30};
+const W = 1000, H = 600;
+const PLOT_W = W - MARGIN.left - MARGIN.right;
+const PLOT_H = H - MARGIN.top - MARGIN.bottom;
 
-                // coords are now in EPSG:32646 (x, y) format from pyproj transformation
-                for (const polygon of coords) {
-                    let xArr = [], yArr = [];
-                    for (const ring of polygon) {
-                        for (const [x, y] of ring) {
-                            xArr.push(x);
-                            yArr.push(y);
-                        }
-                        xArr.push(null);
-                        yArr.push(null);
-                    }
-                    regionTraces.push({
-                        type: 'scatter',
-                        x: xArr,
-                        y: yArr,
-                        mode: 'lines',
-                        line: { color: 'grey', width: 0.5 },
-                        fill: 'toself',
-                        fillcolor: 'rgba(200, 220, 255, 0.15)',
-                        name: name,
-                        text: name,
-                        hoverinfo: 'text',
-                        showlegend: false
-                    });
-                }
-            }
-            allTraces = regionTraces;
-            drawMap();
-        })
-        .catch(err => {
-            console.error('Error loading regions:', err);
-            drawMap();
-        });
+const LAT_MIN = 40, LAT_MAX = 82;
+const LNG_MIN = 25, LNG_MAX = 190;
+
+function project(lat, lng) {
+    const x = MARGIN.left + ((lng - LNG_MIN) / (LNG_MAX - LNG_MIN)) * PLOT_W;
+    const y = MARGIN.top + ((LAT_MAX - lat) / (LAT_MAX - LAT_MIN)) * PLOT_H;
+    return [x, y];
 }
 
+// Draw SVG map
 function drawMap() {
+    const container = document.getElementById('map-container');
     const filter = document.getElementById('specialty-filter').value;
 
-    const cityTrace = {
-        type: 'scatter',
-        mode: 'markers',
-        x: [],
-        y: [],
-        text: [],
-        hoverinfo: 'text',
-        marker: {
-            size: [],
-            color: [],
-            line: { color: 'white', width: 1 }
-        },
-        showlegend: false,
-        name: 'cities'
-    };
-
+    // Calculate city stats
     let maxCount = 0;
     Object.values(cityStats).forEach(s => { if (s.count > maxCount) maxCount = s.count; });
 
-    for (const [name, data] of Object.entries(cityStats)) {
-        if (filter !== 'all' && data.specialty !== filter) continue;
+    // Build SVG
+    let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
 
-        const coords = cityCoordsEPSG32646[name.toLowerCase()];
-        if (!coords) continue;
+    // Background
+    svg += `<rect width="${W}" height="${H}" fill="#0a1628"/>`;
 
-        const [x, y] = coords;
-        const radius = Math.max(6, Math.sqrt(data.count / maxCount) * 25);
+    // Russia outline
+    let outlinePath = '';
+    RUSSIA_OUTLINE.forEach(([lat, lng], i) => {
+        const [x, y] = project(lat, lng);
+        if (i === 0) outlinePath += `M${x.toFixed(1)},${y.toFixed(1)}`;
+        else outlinePath += ` L${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    outlinePath += ' Z';
+    svg += `<path d="${outlinePath}" fill="rgba(74,144,217,0.08)" stroke="#4a90d9" stroke-width="1.5" stroke-linejoin="round"/>`;
+
+    // City dots
+    let hoveredCity = null;
+    Object.entries(cityStats).forEach(([name, data]) => {
+        if (filter !== 'all' && data.specialty !== filter) return;
+
+        const key = name.toLowerCase().trim();
+        const coords = cityCoords[key];
+        if (!coords) return;
+
+        const [lat, lng] = coords;
+        const [x, y] = project(lat, lng);
+        const radius = maxCount > 0 ? Math.max(5, Math.sqrt(data.count / maxCount) * 20) : 8;
         const color = specialtyColors[data.specialty] || '#888';
 
-        cityTrace.x.push(x);
-        cityTrace.y.push(y);
-        cityTrace.text.push(`${name}: ${data.count} защит (спец. ${data.specialty})`);
-        cityTrace.marker.size.push(radius);
-        cityTrace.marker.color.push(color);
-    }
+        // Glow
+        svg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(radius * 1.8).toFixed(1)}" fill="${color}22"/>`;
+        // Dot
+        svg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${radius.toFixed(1)}" fill="${color}" stroke="#fff" stroke-width="1" opacity="0.9"/>`;
+    });
 
-    const traces = [...allTraces];
-    if (cityTrace.x.length > 0) {
-        traces.push(cityTrace);
-    }
-
-    const layout = {
-        dragmode: 'pan',
-        height: 600,
-        margin: { l: 10, b: 10, t: 10, r: 10 },
-        showlegend: false,
-        xaxis: { visible: false },
-        yaxis: { visible: false },
-        paper_bgcolor: '#0a1628',
-        plot_bgcolor: '#0a1628'
-    };
-
-    Plotly.newPlot('map-plotly', traces, layout, { responsive: true });
+    svg += `</svg>`;
+    container.innerHTML = svg;
 }
 
+// Tooltip via floating div
+let tooltip = null;
+
+function showTooltip(name, count, specialty, x, y) {
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.style.cssText = 'position:absolute;background:rgba(0,0,0,0.9);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px;font-family:monospace;pointer-events:none;z-index:100;white-space:nowrap;display:none;';
+        document.getElementById('map-container').appendChild(tooltip);
+    }
+    tooltip.textContent = `${name}: ${count} защит (спец. ${specialty})`;
+    tooltip.style.display = 'block';
+    tooltip.style.left = (x + 15) + 'px';
+    tooltip.style.top = (y - 10) + 'px';
+}
+
+function hideTooltip() {
+    if (tooltip) tooltip.style.display = 'none';
+}
+
+// Mouse events on SVG
+document.getElementById('map-container').addEventListener('mousemove', (e) => {
+    const svgEl = document.querySelector('#map-container svg');
+    if (!svgEl) return;
+
+    const rect = svgEl.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const scaleY = H / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+
+    // Check city dots
+    let maxCount = 0;
+    Object.values(cityStats).forEach(s => { if (s.count > maxCount) maxCount = s.count; });
+
+    const filter = document.getElementById('specialty-filter').value;
+    for (const [name, data] of Object.entries(cityStats)) {
+        if (filter !== 'all' && data.specialty !== filter) continue;
+        const key = name.toLowerCase().trim();
+        const coords = cityCoords[key];
+        if (!coords) continue;
+        const [lat, lng] = coords;
+        const [x, y] = project(lat, lng);
+        const radius = maxCount > 0 ? Math.max(5, Math.sqrt(data.count / maxCount) * 20) : 8;
+        const dist = Math.sqrt((mx - x) ** 2 + (my - y) ** 2);
+        if (dist < radius + 8) {
+            showTooltip(name, data.count, data.specialty, x, y);
+            return;
+        }
+    }
+    hideTooltip();
+});
+
+document.getElementById('map-container').addEventListener('mouseleave', hideTooltip);
+
+// Filter
 document.getElementById('specialty-filter').addEventListener('change', () => {
     drawMap();
 });
 
+// Populate filter
 const allSpecialties = [...new Set(Object.values(cityStats).map(s => s.specialty))].sort();
 allSpecialties.forEach(s => {
     const opt = document.createElement('option');
@@ -196,11 +212,13 @@ allSpecialties.forEach(s => {
     document.getElementById('specialty-filter').appendChild(opt);
 });
 
+// Stats
 const cities = Object.keys(cityStats).length;
 const defenses = Object.values(cityStats).reduce((sum, s) => sum + s.count, 0);
 document.getElementById('total-cities').textContent = cities;
 document.getElementById('total-defenses').textContent = defenses;
 
-loadMapData();
+// Initial draw
+drawMap();
 </script>
 {% endblock %}
