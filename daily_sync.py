@@ -348,7 +348,7 @@ def process_advert(conn, advert, spec_cipher, spec_name, counters, processed_ids
         _print_and_log(f"Organization extracted: {org_name}")
 
     c.execute("UPDATE adverts SET autoref_path = ?, autoref_pdf_url = ?, downloaded = 1, city = ?, organization_name = ? WHERE id = ?",
-              (save_path, resolved_url, advert_db_id, city, org_name))
+              (save_path, resolved_url, city, org_name, advert_db_id))
     conn.commit()
 
     pdf_cipher, pdf_name = extract_specialty_from_pdf(save_path)
