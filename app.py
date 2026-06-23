@@ -453,8 +453,10 @@ def detail(advert_id):
         db_c.execute("SELECT city, organization_name FROM adverts WHERE id = ?", (advert_id,))
         db_row = db_c.fetchone()
         if db_row:
-            advert.setdefault("city", db_row[0] or "")
-            advert.setdefault("organization_name", db_row[1] or "")
+            if db_row[0]:
+                advert["city"] = db_row[0]
+            if db_row[1]:
+                advert["organization_name"] = db_row[1]
         db_conn.close()
     except Exception as e:
         logger.debug(f"Detail DB fetch error: {e}")

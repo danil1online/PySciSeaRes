@@ -63,8 +63,17 @@ def _search_publication_url(pub, autoref_text):
     pub_authors = pub.get('authors', '')
     pub_year = pub.get('year')
 
-    if isinstance(pub_authors, list):
-        pub_authors = ", ".join(pub_authors)
+    if isinstance(pub.get('authors'), list):
+        pub['authors'] = ", ".join(pub['authors'])
+
+    if isinstance(pub.get('title'), list):
+        pub['title'] = ", ".join(pub['title'])
+
+    if isinstance(pub.get('journal'), list):
+        pub['journal'] = ", ".join(pub['journal'])
+
+    if isinstance(pub.get('pages'), list):
+        pub['pages'] = ", ".join(pub['pages'])
 
     # 1. Проверяем DOI в тексте автореферата
     if autoref_text:
