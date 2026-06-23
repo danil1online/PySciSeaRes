@@ -13,7 +13,7 @@ LOG_DIR = os.path.join(BASE_DIR, "logs")
 API_BASE = "https://vak.gisnauka.ru/api"
 LLM_API_URL = os.environ.get(
     "LLM_API_URL",
-    "http://195.133.13.56:1234/v1/chat/completions"
+    "http://195.133.13.56:8080/v1/chat/completions"
 )
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.5-4b")
 
