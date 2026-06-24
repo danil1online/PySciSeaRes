@@ -152,12 +152,17 @@ function drawMap() {
             riseOnHover: true,
         });
 
-        const specList = Object.entries(data.specialties || {})
-            .map(([s, c]) => `${s}: ${c}`)
-            .join('; ');
+        const specEntries = Object.entries(data.specialties || {});
+        const specItems = specEntries.map(([s, c]) => `${s}: ${c}`);
+        const COLS = 4;
+        let specList = '';
+        for (let i = 0; i < specItems.length; i += COLS) {
+            const chunk = specItems.slice(i, i + COLS).join('; ');
+            specList += chunk + (i + COLS < specItems.length ? '<br>' : '');
+        }
 
         marker.bindPopup(`<div style="text-align:center;font-family:monospace;font-size:13px;min-width:180px;">
-            <strong>${capitalizeCity(name)}</strong><br>${data.count} защит<br><small style="white-space:nowrap;">${specList}</small></div>`);
+            <strong>${capitalizeCity(name)}</strong><br>${data.count} защит<br><small>${specList}</small></div>`);
 
         markersLayer.addLayer(marker);
     });
