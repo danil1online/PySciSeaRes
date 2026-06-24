@@ -88,7 +88,11 @@ function findCoords(cityName) {
 }
 
 function capitalizeCity(name) {
-    return name.charAt(0).toUpperCase() + name.slice(1);
+    // Remove commas and trailing ", YEAR" patterns
+    let cleaned = name.replace(/,\s*\d{4}/g, '').replace(/,\s*$/, '').trim();
+    // Capitalize each part separated by hyphen
+    cleaned = cleaned.replace(/(^|-)(\w)/g, (match, prefix, char) => prefix + char.toUpperCase());
+    return cleaned;
 }
 
 // Aggregate counts per specialty for sorting
