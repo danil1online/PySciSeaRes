@@ -28,6 +28,19 @@
 const cityStatsList = {{ city_stats | tojson }};
 const specialtyCatalog = {{ specialties | tojson }};
 
+// Build specialty name catalog: cipher -> name
+const specialtyNames = {};
+specialtyCatalog.forEach(group => {
+    (group.specialties || []).forEach(spec => {
+        specialtyNames[spec.cipher] = spec.name;
+    });
+});
+
+function specialtyDisplayName(cipher) {
+    const name = specialtyNames[cipher];
+    return name ? `${cipher} — ${name}` : cipher;
+}
+
 // Unique color per specialty code using FNV-1a hash
 // 276 specialties -> ~97% unique colors
 function specialtyColor(code) {
@@ -74,6 +87,18 @@ function findCoords(cityName) {
     return null;
 }
 
+function capitalizeCity(name) {
+    return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+// Aggregate counts per specialty for sorting
+const specialtyTotalCounts = {};
+cityStatsList.forEach(item => {
+    Object.entries(item.specialties || {}).forEach(([spec, count]) => {
+        specialtyTotalCounts[spec] = (specialtyTotalCounts[spec] || 0) + count;
+    });
+});
+
 const cityStats = {};
 const allSpecialties = new Set();
 
@@ -118,8 +143,8 @@ function drawMap() {
     Object.entries(cityStats).forEach(([name, data]) => {
         if (filter !== 'all' && data.specialty !== filter) return;
 
-        // Размер точки зависит от количества защит (sqrt масштаб)
-        const radius = Math.max(10, Math.sqrt(data.count) * 14);
+        // Размер точки: min=4, grows with sqrt, caps at 25 when count >= 20
+        const radius = Math.min(25, Math.max(4, Math.sqrt(data.count) * 6));
         const color = specialtyColor(data.specialty);
 
         const marker = L.marker([data.lat, data.lng], {
@@ -129,10 +154,10 @@ function drawMap() {
 
         const specList = Object.entries(data.specialties || {})
             .map(([s, c]) => `${s}: ${c}`)
-            .join('<br>');
+            .join('; ');
 
-        marker.bindPopup(`<div style="text-align:center;font-family:monospace;font-size:13px;">
-            <strong>${name}</strong><br>${data.count} защит<br><small>${specList}</small></div>`);
+        marker.bindPopup(`<div style="text-align:center;font-family:monospace;font-size:13px;min-width:180px;">
+            <strong>${capitalizeCity(name)}</strong><br>${data.count} защит<br><small style="white-space:nowrap;">${specList}</small></div>`);
 
         markersLayer.addLayer(marker);
     });
@@ -156,10 +181,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const filterEl = document.getElementById('specialty-filter');
     filterEl.addEventListener('change', drawMap);
 
-    allSpecialties.forEach(s => {
+    // Sort specialties by total count ascending
+    const sortedSpecialties = [...allSpecialties].sort((a, b) => {
+        return (specialtyTotalCounts[a] || 0) - (specialtyTotalCounts[b] || 0);
+    });
+
+    sortedSpecialties.forEach(s => {
         const opt = document.createElement('option');
         opt.value = s;
-        opt.textContent = s;
+        opt.textContent = specialtyDisplayName(s);
         filterEl.appendChild(opt);
     });
 
