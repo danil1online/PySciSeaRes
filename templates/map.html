@@ -90,8 +90,8 @@ function findCoords(cityName) {
 function capitalizeCity(name) {
     // Remove commas and trailing ", YEAR" patterns
     let cleaned = name.replace(/,\s*\d{4}/g, '').replace(/,\s*$/, '').trim();
-    // Capitalize each part separated by hyphen
-    cleaned = cleaned.replace(/(^|-)(\w)/g, (match, prefix, char) => prefix + char.toUpperCase());
+    // Capitalize each letter that is first char or after separator (space, hyphen, dot)
+    cleaned = cleaned.replace(/(^|[\s.-])([a-zA-Zа-яА-ЯёЁ])/g, (match, prefix, char) => prefix + char.toUpperCase());
     return cleaned;
 }
 
