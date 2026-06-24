@@ -145,7 +145,7 @@ function drawMap() {
     markersLayer = L.layerGroup();
 
     Object.entries(cityStats).forEach(([name, data]) => {
-        if (filter !== 'all' && data.specialty !== filter) return;
+        if (filter !== 'all' && !(filter in data.specialties)) return;
 
         // Размер точки: min=4, grows with sqrt, caps at 25 when count >= 20
         const radius = Math.min(25, Math.max(4, Math.sqrt(data.count) * 6));
