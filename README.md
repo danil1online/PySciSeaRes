@@ -393,15 +393,15 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Сервер запустится на `http://0.0.0.0:5000`. Для продакшена использовать gunicorn:
+Сервер запустится на `http://0.0.0.0:5002`. Для продакшена использовать gunicorn:
 
 ```bash
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
+gunicorn -w 4 -b 0.0.0.0:5002 app:app
 ```
 
 ### 4. Первоначальная настройка
 
-1. Перейти на `http://localhost:5000/login`
+1. Перейти на `http://localhost:5002/login`
 2. Создать первого пользователя (администратора):
 
 ```bash
