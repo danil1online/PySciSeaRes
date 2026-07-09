@@ -13,12 +13,12 @@ LOG_DIR = os.path.join(BASE_DIR, "logs")
 API_BASE = "https://vak.gisnauka.ru/api"
 LLM_API_URL = os.environ.get(
     "LLM_API_URL",
-    "http://195.133.13.56:8080/v1/chat/completions"
+    "http://localhost:8079/v1/chat/completions"
 )
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.5-4b")
 
 # Local llama.cpp server (for memory management experiments)
-LLM_LOCAL_URL = os.environ.get("LLM_LOCAL_URL", "http://localhost:8080/v1/chat/completions")
+LLM_LOCAL_URL = os.environ.get("LLM_LOCAL_URL", "http://localhost:8079/v1/chat/completions")
 LLM_LOCAL_MODEL = os.environ.get("LLM_LOCAL_MODEL", "qwen3.5-2b")
 
 # ======================== HTTP HEADERS ========================
