@@ -9,10 +9,7 @@ from datetime import datetime
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-LLM_1_URL = "http://195.133.13.56:8080/v1/chat/completions"
-LLM_1_MODEL = "Qwen3.5-2B-Q4_K_M.gguf"
-LLM_2_URL = "http://195.133.13.56:8079/v1/chat/completions"
-LLM_2_MODEL = "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+from config import LLM_API_URL, LLM_LOCAL_URL, LLM_MODEL, LLM_LOCAL_MODEL
 
 PUB_EXTRACT_SYSTEM_PROMPT = (
     "Ты — помощник по извлечению библиографических данных из авторефератов диссертаций. "
@@ -359,8 +356,8 @@ def run_test(pdf_files):
     print("=" * 80)
     print(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"PDF файлов: {len(pdf_files)}")
-    print(f"LLM 1: {LLM_1_MODEL} ({LLM_1_URL})")
-    print(f"LLM 2: {LLM_2_MODEL} ({LLM_2_URL})")
+    print(f"LLM 1: {LLM_MODEL} ({LLM_API_URL})")
+    print(f"LLM 2: {LLM_LOCAL_MODEL} ({LLM_LOCAL_URL})")
     print("=" * 80)
     print()
 
@@ -397,16 +394,16 @@ def run_test(pdf_files):
                 print(f"    [{i+1}] {p[:100]}...")
 
         # Test LLM 1
-        print(f"\n  Запрос к LLM 1 ({LLM_1_MODEL})...")
-        llm1_response, llm1_time = send_to_llm(LLM_1_URL, LLM_1_MODEL, llm_section)
+        print(f"\n  Запрос к LLM 1 ({LLM_MODEL})...")
+        llm1_response, llm1_time = send_to_llm(LLM_API_URL, LLM_MODEL, llm_section)
         llm1_pubs = _parse_llm_publications(llm1_response) if llm1_response else []
         if len(llm1_pubs) > 30:
             llm1_pubs = llm1_pubs[:20]
         print(f"  LLM 1: {len(llm1_pubs)} публикаций ({llm1_time:.1f} сек)")
 
         # Test LLM 2
-        print(f"\n  Запрос к LLM 2 ({LLM_2_MODEL})...")
-        llm2_response, llm2_time = send_to_llm(LLM_2_URL, LLM_2_MODEL, llm_section)
+        print(f"\n  Запрос к LLM 2 ({LLM_LOCAL_MODEL})...")
+        llm2_response, llm2_time = send_to_llm(LLM_LOCAL_URL, LLM_LOCAL_MODEL, llm_section)
         llm2_pubs = _parse_llm_publications(llm2_response) if llm2_response else []
         if len(llm2_pubs) > 30:
             llm2_pubs = llm2_pubs[:20]
@@ -470,7 +467,7 @@ def run_test(pdf_files):
         with open(os.path.join(responses_dir, f"{safe_name}_llm1.json"), "w", encoding="utf-8") as f:
             json.dump({
                 "pdf": fname,
-                "llm": LLM_1_MODEL,
+                "llm": LLM_MODEL,
                 "time_sec": round(llm1_time, 2),
                 "pub_count": len(llm1_pubs),
                 "response": llm1_response,
@@ -479,7 +476,7 @@ def run_test(pdf_files):
         with open(os.path.join(responses_dir, f"{safe_name}_llm2.json"), "w", encoding="utf-8") as f:
             json.dump({
                 "pdf": fname,
-                "llm": LLM_2_MODEL,
+                "llm": LLM_LOCAL_MODEL,
                 "time_sec": round(llm2_time, 2),
                 "pub_count": len(llm2_pubs),
                 "response": llm2_response,
@@ -566,8 +563,8 @@ def run_test(pdf_files):
         json.dump({
             "date": datetime.now().isoformat(),
             "num_pdfs": len(pdf_files),
-            "llm1": {"model": LLM_1_MODEL, "url": LLM_1_URL, "avg_score": round(total_llm1_score/n, 1)},
-            "llm2": {"model": LLM_2_MODEL, "url": LLM_2_URL, "avg_score": round(total_llm2_score/n, 1)},
+            "llm1": {"model": LLM_MODEL, "url": LLM_API_URL, "avg_score": round(total_llm1_score/n, 1)},
+            "llm2": {"model": LLM_LOCAL_MODEL, "url": LLM_LOCAL_URL, "avg_score": round(total_llm2_score/n, 1)},
             "regex_avg": round(total_regex_score/n, 1),
             "merged1_avg": round(total_merged1_score/n, 1),
             "merged2_avg": round(total_merged2_score/n, 1),

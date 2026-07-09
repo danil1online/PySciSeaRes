@@ -9,7 +9,7 @@
 4. Извлекает текст первой страницы
 5. Ищет email с помощью LLM
 
-Использует LLM: http://195.133.13.56:1234/v1/chat/completions (qwen3.5-4b)
+Использует LLM: настраивается через LLM_API_URL в config.py
 """
 
 import re

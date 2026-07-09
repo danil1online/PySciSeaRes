@@ -357,7 +357,7 @@ vak-adverts-list/
 - Retry-логика: экспоненциальная задержка при ConnectionError/Timeout/5xx
 
 ### LLM-сервер
-- URL: `http://195.133.13.56:8080/v1/chat/completions` (настраивается в config.py)
+- URL: настраивается через `LLM_API_URL` в config.py (или env-переменная `LLM_API_URL`)
 - Модель: `qwen3.5-4b`
 - API совместим с OpenAI Chat Completions
 - Таймаут: 120 сек, max_tokens: 2000, temperature: 0.1
@@ -483,7 +483,7 @@ python3 -m pytest tests/ -v --cov=. --cov-report=html
 | Параметр | Значение по умолчанию | Описание |
 |----------|----------------------|----------|
 | `API_BASE` | `https://vak.gisnauka.ru/api` | URL API ВАК |
-| `LLM_API_URL` | `http://195.133.13.56:8080/v1/chat/completions` | URL LLM-сервера |
+| `LLM_API_URL` | env: `LLM_API_URL`, default: `localhost:8079` | URL LLM-сервера |
 | `LLM_MODEL` | `qwen3.5-4b` | Модель для LLM |
 | `MIN_SIZE` | `200 * 1024` | Минимальный размер PDF (200 КБ) |
 | `MAX_PUBLICATIONS` | `30` | Максимум публикаций на диссертацию |

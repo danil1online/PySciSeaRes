@@ -8,17 +8,9 @@ import re
 import os
 
 
-API_BASE = "https://vak.gisnauka.ru/api"
-LLM_API_URL = "http://195.133.13.56:8080/v1/chat/completions"
-HEADERS = {"Accept": "application/json"}
-DOWNLOAD_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-}
+from config import API_BASE, LLM_API_URL, HEADERS, DOWNLOAD_HEADERS, MIN_SIZE
 LLM_HEADERS = {"Content-Type": "application/json"}
-DB_PATH = "disser.db"
 AUTOREFS_DIR = "autorefs"
-MIN_SIZE = 500 * 1024  # 500 KB
-LLM_MODEL = "Qwen3.5-2B-Q4_K_M.gguf"
 LLM_MAX_TOKENS = 2000
 PUB_EXTRACT_SYSTEM_PROMPT = (
     "Ты — помощник по извлечению библиографических данных из авторефератов диссертаций. "

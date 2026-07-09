@@ -16,9 +16,7 @@ import pdfplumber
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-LLM_API_URL = "http://195.133.13.56:1234/v1/chat/completions"
-LLM_MODEL = "qwen3.5-4b"
-HEADERS = {"Accept": "application/json"}
+from config import LLM_API_URL, LLM_MODEL, HEADERS
 
 # ============================================================
 # Промпт для JSON-LLM

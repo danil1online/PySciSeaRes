@@ -11,12 +11,13 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
 
 # Мокаем config до импорта email_search
+import config as real_config
 mock_config = types.ModuleType("config")
-mock_config.LLM_API_URL = "http://195.133.13.56:1234/v1/chat/completions"
-mock_config.LLM_MODEL = "qwen3.5-4b"
-mock_config.LLM_TIMEOUT = 120
-mock_config.LLM_MAX_TOKENS = 2000
-mock_config.LLM_TEMPERATURE = 0.1
+mock_config.LLM_API_URL = real_config.LLM_API_URL
+mock_config.LLM_MODEL = real_config.LLM_MODEL
+mock_config.LLM_TIMEOUT = real_config.LLM_TIMEOUT
+mock_config.LLM_MAX_TOKENS = real_config.LLM_MAX_TOKENS
+mock_config.LLM_TEMPERATURE = real_config.LLM_TEMPERATURE
 sys.modules["config"] = mock_config
 
 # Импортируем email_search
