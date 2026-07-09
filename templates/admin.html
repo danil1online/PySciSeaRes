@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Админ-панель{% endblock %}
+{% block content %}
+<div class="admin-page">
+    <h1>Админ-панель</h1>
+
+    <div class="admin-section">
+        <h2>Создать пользователя</h2>
+        <form method="POST" action="{{ url_for('admin_create_user') }}" class="form-inline">
+            <div class="form-group">
+                <label for="username">Логин</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Пароль</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <div class="form-group">
+                <label for="cluster_id">Кластер (необязательно)</label>
+                <select id="cluster_id" name="cluster_id">
+                    <option value="">Без ограничения</option>
+                    {% for cid, name in cluster_options %}
+                    <option value="{{ cid }}">{{ cid }}. {{ name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group checkbox-group">
+                <label>
+                    <input type="checkbox" name="is_admin">
+                    Администратор
+                </label>
+            </div>
+            <button type="submit" class="btn btn-primary">Создать</button>
+        </form>
+    </div>
+
+    <div class="admin-section">
+        <h2>Пользователи</h2>
+        {% if users %}
+        <table class="users-table">
+            <thead>
+                <tr>
+                    <th>Логин</th>
+                    <th>Роль</th>
+                    <th>Кластер</th>
+                    <th>Дата создания</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>{{ user.username }}</td>
+                    <td>
+                        {% if user.is_admin %}
+                        <span class="badge badge-admin">Админ</span>
+                        {% else %}
+                        <span class="badge badge-user">Пользователь</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.is_admin %}
+                        <span class="disabled">Все кластеры</span>
+                        {% elif user.cluster_id is not none %}
+                        <span title="{{ cluster_options[user.cluster_id][1] if user.cluster_id < cluster_options|length else '' }}">{{ user.cluster_id }}</span>
+                        {% else %}
+                        <span class="disabled">Все кластеры</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ user.created_at[:10] if user.created_at else '—' }}</td>
+                    <td>
+                        {% if not user.is_admin %}
+                        <form method="POST" action="{{ url_for('admin_delete_user', username=user.username) }}" style="display:inline" onsubmit="return confirm('Удалить пользователя {{ user.username }}?')">
+                            <button type="submit" class="btn btn-danger btn-sm">Удалить</button>
+                        </form>
+                        {% else %}
+                        <span class="disabled">Нельзя удалить</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-text">Нет пользователей</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

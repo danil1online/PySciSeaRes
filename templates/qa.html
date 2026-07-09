@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}Вопросы к базе данных{% endblock %}
+{% block content %}
+<div class="qa-page">
+    <h1>Вопросы к базе данных</h1>
+    <p class="qa-description">Задайте вопрос о диссертациях на русском языке. LLM сформирует SQL-запрос к базе данных и вернёт ответ.</p>
+
+    <div class="qa-container">
+        <div class="qa-messages" id="qa-messages">
+            <div class="qa-message qa-message-system">
+                <div class="qa-avatar qa-avatar-system">🤖</div>
+                <div class="qa-bubble qa-bubble-system">
+                    <p>Привет! Я могу отвечать на вопросы о диссертациях, публикациях, специалистах и руководителях. Вот примеры вопросов:</p>
+                    <ul>
+                        <li>Какие соискатели защищаются по специальности 2.2.11?</li>
+                        <li>У кого из соискателей больше всего публикаций?</li>
+                        <li>Какие специальности представлены в базе?</li>
+                        <li>Кто научные руководители из Москвы?</li>
+                        <li>Какие направления публикаций по специальности 1.2.1?</li>
+                        <li>Сколько диссертаций защитилось в 2024 году?</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="qa-input-area">
+            <div class="qa-suggestions" id="qa-suggestions">
+                <span class="qa-suggestion" onclick="useSuggestion(this.textContent)">Кто защитился по специальности 2.2.11 с наибольшим числом публикаций?</span>
+                <span class="qa-suggestion" onclick="useSuggestion(this.textContent)">Какие научные руководители встречаются чаще всего?</span>
+                <span class="qa-suggestion" onclick="useSuggestion(this.textContent)">Показать все специальности с числом диссертаций</span>
+                <span class="qa-suggestion" onclick="useSuggestion(this.textContent)">Какие годы публикаций представлены в базе?</span>
+            </div>
+            <div class="qa-input-row">
+                <input type="text" id="qa-input" class="qa-input" placeholder="Задайте вопрос о диссертациях..." autocomplete="off">
+                <button class="btn btn-primary qa-send-btn" id="qa-send-btn" onclick="sendQuestion()">→</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const messagesEl = document.getElementById('qa-messages');
+const inputEl = document.getElementById('qa-input');
+const sendBtn = document.getElementById('qa-send-btn');
+const suggestionsEl = document.getElementById('qa-suggestions');
+
+function addMessage(role, content, sql, result) {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'qa-message qa-message-' + role;
+
+    const avatar = document.createElement('div');
+    avatar.className = 'qa-avatar qa-avatar-' + role;
+
+    if (role === 'user') {
+        avatar.textContent = '👤';
+    } else if (role === 'system') {
+        avatar.textContent = '🤖';
+    } else if (role === 'error') {
+        avatar.textContent = '⚠️';
+    }
+
+    const bubble = document.createElement('div');
+    bubble.className = 'qa-bubble qa-bubble-' + role;
+
+    let html = '';
+
+    if (result && result.error) {
+        html += '<p>' + escapeHtml(content) + '</p>';
+        html += '<div class="qa-error">Ошибка: ' + escapeHtml(result.error) + '</div>';
+        if (result.sql) {
+            html += '<div class="qa-sql-block"><strong>Запрос:</strong><pre>' + escapeHtml(result.sql) + '</pre></div>';
+        }
+    } else if (result && result.columns && result.columns.length > 0) {
+        html += '<p>' + escapeHtml(content) + '</p>';
+        html += '<div class="qa-sql-block"><strong>Запрос:</strong><pre>' + escapeHtml(result._sql || '') + '</pre></div>';
+        html += '<div class="qa-result-table">';
+
+        // Table header
+        html += '<div class="qa-result-header">';
+        result.columns.forEach(col => {
+            html += '<div class="qa-result-col">' + escapeHtml(col) + '</div>';
+        });
+        html += '</div>';
+
+        // Table rows
+        result.rows.forEach(row => {
+            html += '<div class="qa-result-row">';
+            row.forEach((val, i) => {
+                if (val === null || val === '') val = '—';
+                html += '<div class="qa-result-col">' + escapeHtml(String(val)) + '</div>';
+            });
+            html += '</div>';
+        });
+
+        if (result.count > result.rows.length) {
+            html += '<div class="qa-result-more">... ещё ' + (result.count - result.rows.length) + ' записей</div>';
+        }
+        html += '<div class="qa-result-count">Всего: ' + result.count + ' записей</div>';
+        html += '</div>';
+    } else if (sql) {
+        html += '<p>' + escapeHtml(content) + '</p>';
+        html += '<div class="qa-sql-block"><strong>Запрос:</strong><pre>' + escapeHtml(sql) + '</pre></div>';
+    } else {
+        html += '<p>' + escapeHtml(content) + '</p>';
+    }
+
+    bubble.innerHTML = html;
+    msgDiv.appendChild(avatar);
+    msgDiv.appendChild(bubble);
+    messagesEl.appendChild(msgDiv);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function addLoadingMessage() {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'qa-message qa-message-system';
+    msgDiv.id = 'qa-loading';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'qa-avatar qa-avatar-system';
+    avatar.textContent = '🤖';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'qa-bubble qa-bubble-system';
+    bubble.innerHTML = '<div class="qa-loading"><span class="qa-loading-dot"></span><span class="qa-loading-dot"></span><span class="qa-loading-dot"></span><p>Формирую запрос и анализирую данные...</p></div>';
+
+    msgDiv.appendChild(avatar);
+    msgDiv.appendChild(bubble);
+    messagesEl.appendChild(msgDiv);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function removeLoadingMessage() {
+    const loading = document.getElementById('qa-loading');
+    if (loading) loading.remove();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function useSuggestion(text) {
+    inputEl.value = text;
+    sendQuestion();
+}
+
+function sendQuestion() {
+    const question = inputEl.value.trim();
+    if (!question) return;
+
+    inputEl.value = '';
+    suggestionsEl.style.display = 'none';
+    sendBtn.disabled = true;
+    sendBtn.classList.add('loading');
+
+    addMessage('user', question, null, null);
+    addLoadingMessage();
+
+    fetch('/api/qa', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ question: question })
+    })
+    .then(r => r.json())
+    .then(data => {
+        removeLoadingMessage();
+        if (data.error) {
+            addMessage('error', data.answer || data.error, null, { error: data.error, sql: data.sql });
+        } else {
+            addMessage('assistant', data.answer || '', data.sql, data.result);
+        }
+        sendBtn.disabled = false;
+        sendBtn.classList.remove('loading');
+    })
+    .catch(err => {
+        removeLoadingMessage();
+        addMessage('error', 'Ошибка соединения с сервером. Попробуйте позже.', null, null);
+        sendBtn.disabled = false;
+        sendBtn.classList.remove('loading');
+    });
+}
+
+inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        sendQuestion();
+    }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    inputEl.focus();
+});
+</script>
+{% endblock %}
